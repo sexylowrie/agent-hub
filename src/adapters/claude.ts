@@ -280,8 +280,9 @@ export class ClaudeAdapter implements AgentAdapter {
       for (const e of r.events) q.push(e)
       if (r.control) {
         const c = r.control
-        opts
-          .onApproval(approvalFromControl(c))
+        // 先让 Core 处理完此前的事件，保证 approval.request 排在 tool.call started 之后
+        q.whenDrained()
+          .then(() => opts.onApproval(approvalFromControl(c)))
           .catch(() => 'deny' as const)
           .then((d) => write(buildControlResponse(c, d)))
       }

@@ -6,6 +6,7 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
   private items: T[] = []
   private waiters: ((r: IteratorResult<T>) => void)[] = []
   private ended = false
+  private drainWaiters: (() => void)[] = []
 
   push(item: T) {
     if (this.ended) return
@@ -14,10 +15,23 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
     else this.items.push(item)
   }
 
+  /** 消费者已处理完此前入队的全部事件（正在等下一条）或队列已结束时 resolve */
+  whenDrained(): Promise<void> {
+    if (this.ended || (this.items.length === 0 && this.waiters.length > 0)) return Promise.resolve()
+    return new Promise((r) => this.drainWaiters.push(r))
+  }
+
+  private checkDrained() {
+    if (this.ended || (this.items.length === 0 && this.waiters.length > 0)) {
+      for (const r of this.drainWaiters.splice(0)) r()
+    }
+  }
+
   end() {
     if (this.ended) return
     this.ended = true
     for (const w of this.waiters.splice(0)) w({ value: undefined as never, done: true })
+    this.checkDrained()
   }
 
   [Symbol.asyncIterator](): AsyncIterator<T> {
@@ -26,7 +40,10 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
         const item = this.items.shift()
         if (item !== undefined) return Promise.resolve({ value: item, done: false })
         if (this.ended) return Promise.resolve({ value: undefined as never, done: true })
-        return new Promise((r) => this.waiters.push(r))
+        return new Promise((r) => {
+          this.waiters.push(r)
+          this.checkDrained()
+        })
       },
     }
   }

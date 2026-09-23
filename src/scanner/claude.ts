@@ -285,6 +285,43 @@ export class ClaudeScanner {
     return v
   }
 
+  /** 按会话 id 找文件：先查缓存，再逐个项目目录找 `<id>.jsonl` */
+  findFile(vendorSessionId: string): string | undefined {
+    const name = `${vendorSessionId}.jsonl`
+    for (const f of this.meta.keys()) if (basename(f) === name) return f
+    let dirs: string[] = []
+    try {
+      dirs = readdirSync(this.projectsDir)
+    } catch {
+      return undefined
+    }
+    for (const d of dirs) {
+      const p = join(this.projectsDir, d, name)
+      try {
+        statSync(p)
+        return p
+      } catch {
+        // 不在这个目录
+      }
+    }
+    return undefined
+  }
+
+  /** 续聊前的实时复核：重新读文件与活 pid */
+  refresh(vendorSessionId: string): SessionView | undefined {
+    const f = this.findFile(vendorSessionId)
+    return f ? this.scanFile(f) : undefined
+  }
+
+  /** 丢弃文件中尚未读取的新行（Hub 轮次自己写入的，Adapter 已产出事件） */
+  skipToEnd(file: string) {
+    try {
+      this.offsets.set(file, statSync(file).size)
+    } catch {
+      // 文件不存在
+    }
+  }
+
   /**
    * 增量读取文件新行，转成桌面端进度事件。首次调用只记录 offset，不回放历史。
    */
