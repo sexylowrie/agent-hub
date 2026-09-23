@@ -77,4 +77,14 @@ export const HubEvent = z.discriminatedUnion('type', [
 export type HubEvent = z.infer<typeof HubEvent>
 export type HubEventType = HubEvent['type']
 
-export const sessionKey = (vendor: Vendor, vendorSessionId: string) => `${vendor}:${vendorSessionId}`
+/** 会话详情里的历史消息（厂商存储读出，REST 返回，不进 events 表） */
+export interface HistoryItem {
+  role: 'user' | 'assistant' | 'tool'
+  text: string
+  toolName?: string
+  at?: number
+  /** desktop=桌面端写入；cli=厂商 CLI 写入（含 Hub 续聊） */
+  source: 'desktop' | 'cli'
+}
+
+export const sessionKey =(vendor: Vendor, vendorSessionId: string) => `${vendor}:${vendorSessionId}`
