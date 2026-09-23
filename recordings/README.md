@@ -6,13 +6,14 @@
 |---|---|---|
 | claude/one-turn-with-tool.ndjson | `claude -p --output-format stream-json --verbose --include-partial-messages`，含 Bash 工具调用 | 事件映射、delta 拼接 |
 | claude/permission-roundtrip.ndjson | 双向 stream-json + `--permission-prompt-tool stdio`，含 `control_request/can_use_tool` 与我们的 `control_response` | 审批往返 |
+| claude/adapter-args-roundtrip.ndjson | `npm run record -- claude` 录制，参数与 Adapter 完全一致（`--include-partial-messages` + `--permission-prompt-tool stdio` + `--permission-mode default`），含审批往返 | Adapter 端到端解析 |
 | codex/exec-one-turn.ndjson | `codex exec --json`，含 command_execution | 事件形状参考（Adapter 不用 exec） |
 | codex/app-server-one-turn.ndjson | app-server JSON-RPC：initialize → thread/start → turn/start → turn/completed | 握手与一轮 |
 | codex/app-server-approval.ndjson | 同上，read-only 沙箱触发 `item/commandExecution/requestApproval` 并回 accept | 审批往返 |
 | cursor/one-turn-with-tool.ndjson | `agent -p --output-format stream-json --sandbox enabled`，含 tool_call | 事件映射 |
 
 待补（M1）：`codex/rollout-sample.jsonl`（GUI 会话文件格式）、`cursor/store-db-sample.json`（CLI 续聊存储格式）。
-录制脚本：`npm run record -- <vendor>`（M0 实现 `scripts/record.ts`）。
+录制脚本：`npm run record -- claude [--prompt ..] [--cwd ..] [--resume id] [--decision allow|deny] [--out 文件名]`（M0 支持 claude，codex/cursor 在 M1 补充）。
 
 ## Scanner 样本（M0 补充）
 | 文件 | 内容 | 用途 |

@@ -84,3 +84,15 @@ test('参数：默认 default 权限模式，force 用 acceptEdits，不用 bypa
   assert.ok(!f.includes('--resume'))
   assert.ok(!f.join(' ').includes('bypass'))
 })
+
+test('adapter-args-roundtrip：Adapter 实际参数（partial + stdio 审批）', () => {
+  const { events, controls, done } = replay('claude/adapter-args-roundtrip.ndjson', { turnId: 't4', prompt: 'p', vendorSessionId: 'x' })
+  assert.ok(done)
+  assert.deepEqual(types(events), [
+    'turn.started', 'message.user', 'tool.call:started', 'tool.call:done', 'message.delta', 'turn.done',
+  ])
+  assert.equal(controls.length, 1)
+  const recorded = stdinLines('claude/adapter-args-roundtrip.ndjson').find((l) => l.type === 'control_response')
+  assert.deepEqual(buildControlResponse(controls[0], 'allow'), recorded)
+  assert.equal((events.at(-1) as any).resultText, '收到')
+})
