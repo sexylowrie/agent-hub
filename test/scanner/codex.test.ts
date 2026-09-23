@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { appendFileSync, copyFileSync, mkdtempSync, readFileSync, utimesSync } from 'node:fs'
+import { appendFileSync, closeSync, copyFileSync, mkdirSync, mkdtempSync, openSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { CodexScanner, codexState, modelOverrideFor, parseRolloutTail, rolloutProgress } from '../../src/scanner/codex.ts'
+import { CodexScanner, codexState, heldLockFiles, modelOverrideFor, parseRolloutTail, rolloutProgress } from '../../src/scanner/codex.ts'
 import type { HubEvent } from '../../src/core/events.ts'
 import { recordingPath } from '../helpers.ts'
 
@@ -36,7 +36,8 @@ function fixture() {
   return { root, sample, aborted, stateDb }
 }
 
-const scanner = (stateDb: string, alive = true) => new CodexScanner({ stateDb, recentDays: 30, quietMs: 5000, codexAlive: () => alive })
+const scanner = (stateDb: string, alive = true, extra: Partial<ConstructorParameters<typeof CodexScanner>[0]> = {}) =>
+  new CodexScanner({ stateDb, recentDays: 30, quietMs: 5000, codexAlive: () => alive, locksDir: join(stateDb, '..', 'thread-writer-locks'), ...extra })
 
 test('parseRolloutTail：task_complete / turn_aborted 收尾，取最后一条回复', () => {
   const t = parseRolloutTail(lines('codex/rollout-sample.jsonl'))
@@ -129,4 +130,36 @@ test('readProgress：首次只记 offset，之后增量', () => {
   const ev = s.readProgress(sample, 'codex:x')
   assert.deepEqual(ev.map((e) => e.type), ['turn.started', 'message.user'])
   assert.equal(s.threadIdOf(sample), SAMPLE_ID)
+})
+
+test('写锁：GUI 打开着线程（锁文件被持有）→ running；残留但无人持有的锁文件不算', () => {
+  const { root, stateDb } = fixture()
+  const locks = join(root, 'thread-writer-locks')
+  mkdirSync(locks)
+  writeFileSync(join(locks, `${SAMPLE_ID}.lock`), '')
+  writeFileSync(join(locks, '.coordination.lock'), '')
+  const held = scanner(stateDb, true, { heldLocks: (fs) => new Set(fs) })
+  assert.deepEqual([...held.lockedThreads()], [SAMPLE_ID])
+  assert.equal(held.refresh(SAMPLE_ID)!.state, 'running')
+  const stale = scanner(stateDb, true, { heldLocks: () => new Set() })
+  assert.equal(stale.refresh(SAMPLE_ID)!.state, 'idle')
+  assert.equal(codexState({ openTurn: false, mtimeMs: 0, now: 1e9, quietMs: 0, codexAlive: () => false, writerLocked: true }), 'running')
+})
+
+test('heldLockFiles：用 lsof 判断锁文件是否被进程打开', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hub-locks-'))
+  const a = join(dir, 'a.lock')
+  const b = join(dir, 'b.lock')
+  writeFileSync(a, '')
+  writeFileSync(b, '')
+  const fd = openSync(a, 'r')
+  try {
+    const held = heldLockFiles([a, b])
+    // lsof 输出的是真实路径（/var → /private/var）
+    assert.equal([...held].some((f) => f.endsWith('/a.lock')), true)
+    assert.equal([...held].some((f) => f.endsWith('/b.lock')), false)
+  } finally {
+    closeSync(fd)
+  }
+  assert.equal(heldLockFiles([]).size, 0)
 })

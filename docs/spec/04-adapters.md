@@ -5,6 +5,7 @@
 interface RunOpts { force?: boolean; signal: AbortSignal; onApproval: (req: ApprovalRequest) => Promise<Decision> }
 interface AgentAdapter {
   readonly vendor: Vendor
+  readonly requiresCwd?: boolean   // 默认 true；false 时会话缺 cwd 也允许续聊（Cursor）
   resume(vendorSessionId: string, cwd: string, text: string, opts: RunOpts): AsyncIterable<HubEvent>
   start(cwd: string, text: string, opts: RunOpts): AsyncIterable<HubEvent>   // 需产出 session.upsert 带新 id
 }
@@ -32,21 +33,33 @@ claude -p --resume <id> --input-format stream-json --output-format stream-json \
 ```
 <codexBin> -c model="<config.codex.model>" app-server        # stdio
 ```
-- 握手：`initialize` → `initialized` 通知。
-- `resume`: 先读 threads 表 archived；archived 则 `thread/unarchive`；然后 `thread/resume {threadId}` → `turn/start`。
-- `start`: `thread/start {cwd, approvalPolicy:"on-request", sandbox: force ? "workspace-write" : "read-only"}`。
-- 服务端请求（有 `id` 且有 `method`）一律视为需回执；目前已知 `item/commandExecution/requestApproval`、`item/fileChange/requestApproval`（后者按 schema）。回 `{id, result:{decision}}`，decision 映射：allow→accept、deny→decline、allow_session→acceptForSession。
-- `turn/completed` 后发 `turn.done`，然后关闭 stdin 让进程退出；2 秒未退出 SIGTERM。
-- 类型从 `scripts/gen-codex-types.sh` 生成的 `codex.types.ts` 取，不手写。
+- 握手：`initialize {clientInfo:{name:"agent-hub"}, capabilities:{experimentalApi:true}}` → `initialized` 通知。
+- `resume`：先经 `threadInfo`（Scanner 只读 threads 表）取 archived 与模型；archived 则 `thread/unarchive`；然后 `thread/resume {threadId, approvalPolicy:"on-request", sandbox, excludeTurns:true, model?}` → `turn/start`。
+  - 线程模型不在 `models_cache.json` 可用列表里才带 `model`（会改写线程模型，见 01）。
+  - resume 报 `is archived`（threadInfo 过期）时解档后重试一次。
+  - 报 `already has an active writer`（GUI 打开着该线程）时本轮失败；正常情况下 Scanner 已判为 running，send 在 Core 就被拒。
+- `start`：`thread/start {cwd, approvalPolicy:"on-request", sandbox}`，响应里拿新线程 id 后先产出 `session.upsert`。
+- sandbox：默认 `read-only`，`force` 用 `workspace-write`。
+- 本轮判定：只认 `turn/start` 响应里 `turn.id` 的通知（resume 后会先收到上一轮的 tokenUsage）。
+- 事件：`turn/started`→turn.started+message.user；`item/agentMessage/delta`→message.delta（没有 delta 的 agentMessage 用 `item/completed` 整块）；`item/reasoning/*Delta`→thinking.delta；`item/started|completed{commandExecution|fileChange|mcpToolCall|dynamicToolCall}`→tool.call；`thread/tokenUsage/updated.last`→usage；`error{willRetry:false}`→error；`turn/completed`→turn.done（completed→success、interrupted→interrupted、failed→error）。
+- 服务端请求（有 `id` 且有 `method`）一律回执：`item/commandExecution/requestApproval` 与 `item/fileChange/requestApproval` 走 `onApproval`，回 `{id, result:{decision}}`，映射 allow→accept、deny→decline、allow_session→acceptForSession；其他请求回 JSON-RPC 错误 `-32601` 并产出 `error{recoverable:true}`。
+- 文件审批的摘要从此前 `item/started{fileChange}.changes[].path` 取（请求本身不带路径）。
+- 中断：`turn/interrupt {threadId, turnId}`，5 秒内没收到 `turn/completed` 就 SIGTERM；轮次还没开始时直接 SIGTERM。
+- `turn/completed` 后关闭 stdin 让进程退出；2 秒未退出 SIGTERM。
+- 类型从 `scripts/gen-codex-types.sh` 生成的 `codex.types.ts` 取，不手写（生成物是按根类型取的闭包目录 `codex.types/`）。
 
 ## Cursor（src/adapters/cursor.ts）
 ```
-agent -p --resume <composerId> --output-format stream-json [--sandbox enabled | --force] "<text>"
+agent -p [--resume <composerId>] --output-format stream-json --stream-partial-output --trust [--sandbox enabled | --force] "<text>"
 ```
 - 默认 `--sandbox enabled`；`force=true` 才 `--force`。UI 上 force 必须是显式开关。
-- 无审批。`tool_call` 事件直接转 `tool.call`。
-- `Connection stalled` 等瞬时错误：同一轮内自动重试 1 次。
-- `start()` 不带 `--resume`，从 `result.session_id` 取 id；注意此时 Scanner 需从 `~/.cursor/chats` 发现它。
+- `--trust`：无头模式在未信任目录会直接退出（见 01）。
+- `--stream-partial-output`：文本片段 → message.delta；随后的整块重复（等于累计片段）丢弃。
+- 无审批。`tool_call.{xxxToolCall:{args,result}}` → `tool.call`（name 去掉 `ToolCall` 后缀，输出取 `result.success.interleavedOutput`）。
+- `Connection stalled` 等瞬时错误：还没有模型输出时，同一轮内自动重试 1 次（start 的重试改为续接已拿到的 id）。
+- 中断：SIGINT。Cursor 不输出 result、退出码 130，由进程退出兜底为 `turn.done{status:interrupted}`。
+- `requiresCwd=false`：`agent --resume` 不依赖 cwd，推断不到工作区时在 home 下拉起。
+- `start()` 不带 `--resume`，从 `system.init.session_id` 取 id；Scanner 会从 `~/.cursor/chats` 发现它。
 
 ## 测试
 `test/adapters/*.test.ts`：用 `recordings/` 的 ndjson 喂给各 Adapter 的行解析器，断言产出的 HubEvent 序列（类型顺序 + 关键字段）。审批样本要断言能正确构造回执。

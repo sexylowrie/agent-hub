@@ -14,8 +14,22 @@
 | codex/app-server-approval.ndjson | 同上，read-only 沙箱触发 `item/commandExecution/requestApproval` 并回 accept | 审批往返 |
 | cursor/one-turn-with-tool.ndjson | `agent -p --output-format stream-json --sandbox enabled`，含 tool_call | 事件映射 |
 
-待补（M1）：`codex/rollout-sample.jsonl`（GUI 会话文件格式）、`cursor/store-db-sample.json`（CLI 续聊存储格式）。
-录制脚本：`npm run record -- claude [--prompt ..] [--cwd ..] [--resume id] [--decision allow|deny] [--out 文件名]`（M0 支持 claude，codex/cursor 在 M1 补充）。
+录制脚本：`npm run record -- claude|codex|cursor [--prompt ..] [--cwd ..] [--resume id] [--decision allow|deny] [--out 文件名] [--interrupt-after ms]`；codex 另有 `--unarchive`、`--model`、`--force`。
+
+## M1 补充（2026-09-24，均用 `npm run record` 录制，只动 /tmp 下的探针会话）
+| 文件 | 内容 | 用途 |
+|---|---|---|
+| codex/app-server-resume.ndjson | `thread/resume{excludeTurns}` → 一轮；resume 后先收到**上一轮**的 tokenUsage | 只认本轮 turnId |
+| codex/app-server-interrupted.ndjson | 长文本中途 `turn/interrupt` → `turn/completed{interrupted}` | 中断 |
+| codex/app-server-filechange-approval.ndjson | read-only 沙箱下 apply_patch 触发 `item/fileChange/requestApproval` 并 accept | 文件审批（请求不带路径） |
+| codex/app-server-unarchive-resume.ndjson | 归档线程 `thread/unarchive` → resume（带 `model` 覆盖） | 自动解档 |
+| codex/app-server-model-unsupported.ndjson | 线程模型为 gpt-5.2：`error` 通知 + `turn/completed{failed}` | 失败轮次 |
+| codex/rollout-sample.jsonl | 探针线程的 rollout（两轮，含工具调用），经 `scripts/trim-codex-rollout.ts` 裁剪（去 AGENTS.md 等注入上下文） | Scanner 尾部/进度 |
+| codex/rollout-interrupted.jsonl | 被中断线程的 rollout，以 `turn_aborted` 结尾 | 中断识别 |
+| cursor/resume-one-turn.ndjson | `--stream-partial-output` 下续聊一轮：文本片段 + 整块重复，中间夹工具调用 | 去重规则 |
+| cursor/interrupted.ndjson | SIGINT：无 result，退出码 130 | 中断 |
+| cursor/store-db-sample.json | `~/.cursor/chats/.../store.db`（三轮 CLI 会话）经 `scripts/dump-cursor-store.ts` 导出：meta、根 blob（protobuf hex）、消息 JSON | chats 合并 |
+| cursor/ide-composer-sample.json | IDE composer（`dc0a49f7`，只有 hi/你好）的 composerData + bubble，经 `scripts/dump-cursor-composer.ts` 只留 Scanner 用到的字段 | IDE 列表/详情 |
 
 ## Scanner 样本（M0 补充）
 | 文件 | 内容 | 用途 |

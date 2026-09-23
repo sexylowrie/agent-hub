@@ -224,3 +224,16 @@ test('Gateway：REST 鉴权 + WS hello/send/审批/SESSION_BUSY', async () => {
 function pick(r: any) {
   return r.ok ? { ok: true } : { ok: false, code: r.code }
 }
+
+test('缺 cwd：默认拒绝；Adapter 声明 requiresCwd=false 时照常续聊（Cursor）', async () => {
+  const { store, hub, adapter, seen } = setup()
+  hub.applyScan([{ ...view('idle'), cwd: null }])
+  const r = hub.send(`claude:${SID}`, 'hi')
+  assert.equal(r.ok, false)
+  assert.equal((r as any).code, 'NOT_RESUMABLE')
+  Object.defineProperty(adapter, 'requiresCwd', { value: false })
+  const ok = hub.send(`claude:${SID}`, 'hi')
+  assert.equal(ok.ok, true)
+  await waitFor(() => seen.some((e) => e.type === 'turn.done'))
+  assert.equal(store.getSession(`claude:${SID}`)!.state, 'idle')
+})

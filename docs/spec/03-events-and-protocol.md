@@ -64,7 +64,8 @@ interface SessionView {
 POST /api/pair                 { code, deviceName } → { token, deviceId }
 GET  /api/health               → { ok, version, vendors: {claude:{bin,version,ok}, ...} }
 GET  /api/sessions             ?vendor=&state=&limit=&offset=   → SessionView[]
-GET  /api/sessions/:id         → SessionView + 最近 200 条 events
+GET  /api/sessions/:id         ?messages=50  → SessionView + 最近 200 条 events + messages?（厂商历史，目前仅 Cursor：IDE 消息 + CLI 续聊）
 GET  /api/sessions/:id/events  ?sinceSeq=&limit=
 ```
+`messages` 元素：`{ role: 'user'|'assistant'|'tool', text, toolName?, at?, source: 'desktop'|'cli' }`（`HistoryItem`，不进 events 表）。
 除 `/api/pair` 与 `/api/health` 外都需 `Authorization: Bearer <token>`。

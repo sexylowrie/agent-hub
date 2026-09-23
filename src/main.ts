@@ -6,7 +6,12 @@ import { sessionKey, type SessionView, type Vendor } from './core/events.ts'
 import { Hub } from './core/sessions.ts'
 import { Store } from './core/store.ts'
 import { ClaudeAdapter } from './adapters/claude.ts'
+import { CodexAdapter } from './adapters/codex.ts'
+import { CursorAdapter } from './adapters/cursor.ts'
 import { ClaudeScanner } from './scanner/claude.ts'
+import { CodexScanner } from './scanner/codex.ts'
+import { CursorScanner } from './scanner/cursor.ts'
+import { claudeSource, codexSource, cursorSource, type ScanSource } from './scanner/sources.ts'
 import { every, watchDirs } from './scanner/watcher.ts'
 import { createPairingCode } from './gateway/auth.ts'
 import { startGateway } from './gateway/server.ts'
@@ -33,68 +38,73 @@ async function serve() {
   }
 
   let hub: Hub
-  const claudeScanner = new ClaudeScanner({
-    recentDays: cfg.scanner.recentDays,
-    quietMs: cfg.scanner.idleQuietMs.claude,
-    isHubSession: (id) => hub.isHubSession(sessionKey('claude', id)),
-  })
+  const isHub = (vendor: Vendor) => (id: string) => hub.isHubSession(sessionKey(vendor, id))
+  const codex = codexSource(
+    new CodexScanner({ recentDays: cfg.scanner.recentDays, quietMs: cfg.scanner.idleQuietMs.codex, isHubSession: isHub('codex') }),
+    cfg.codex.model,
+  )
+  const sources: Record<Vendor, ScanSource> = {
+    claude: claudeSource(new ClaudeScanner({ recentDays: cfg.scanner.recentDays, quietMs: cfg.scanner.idleQuietMs.claude, isHubSession: isHub('claude') })),
+    codex,
+    cursor: cursorSource(new CursorScanner({ recentDays: cfg.scanner.recentDays, quietMs: cfg.scanner.idleQuietMs.cursor, isHubSession: isHub('cursor') })),
+  }
 
   hub = new Hub({
     store,
     bus,
-    adapters: { claude: new ClaudeAdapter(cfg.binaries.claude) },
+    adapters: {
+      claude: new ClaudeAdapter(cfg.binaries.claude),
+      codex: new CodexAdapter({ bin: cfg.binaries.codex, model: cfg.codex.model, threadInfo: codex.threadInfo }),
+      cursor: new CursorAdapter(cfg.binaries.cursor),
+    },
     approvalExpireMs: cfg.approval.expireSeconds * 1000,
     isCwdAllowed: (cwd) => isCwdAllowed(cfg, cwd),
-    refresh: (s: SessionView) => (s.vendor === 'claude' ? claudeScanner.refresh(s.vendorSessionId) : s),
-    beforeTurnEnd: (s) => {
-      if (s.vendor !== 'claude') return
-      const f = claudeScanner.findFile(s.vendorSessionId)
-      if (f) claudeScanner.skipToEnd(f)
-    },
+    refresh: (s: SessionView) => sources[s.vendor].refresh(s.vendorSessionId),
+    beforeTurnEnd: (s) => sources[s.vendor].beforeTurnEnd?.(s.vendorSessionId),
   })
 
   hub.reconcileOrphans(pidAlive)
 
   // 首次全量扫描；记录各文件 offset，之后只推增量
-  const t0 = Date.now()
-  const initial = claudeScanner.scanAll()
-  hub.applyScan(initial)
-  for (const f of claudeScanner.listFiles()) claudeScanner.skipToEnd(f)
-  console.log(`[scanner] claude: ${initial.length} 个会话（${Date.now() - t0}ms）`)
-
-  const quiet = cfg.scanner.idleQuietMs.claude
-  const onFiles = (files: Set<string>) => {
-    let pidsChanged = false
-    const views: SessionView[] = []
-    for (const f of files) {
-      if (f.startsWith(claudeScanner.sessionsDir)) {
-        pidsChanged = true
-        continue
+  const stops: (() => void)[] = []
+  for (const src of Object.values(sources)) {
+    const t0 = Date.now()
+    const initial = src.init()
+    hub.applyScan(initial)
+    console.log(`[scanner] ${src.vendor}: ${initial.length} 个会话（${Date.now() - t0}ms）`)
+    const quiet = cfg.scanner.idleQuietMs[src.vendor]
+    const onFiles = (files: Set<string>) => {
+      try {
+        const r = src.onFiles(files)
+        hub.ingestProgress(r.progress)
+        if (r.views.length) hub.applyScan(r.views)
+        if (r.later) {
+          const later = r.later
+          const t = setTimeout(() => hub.applyScan(later()), quiet + 200)
+          t.unref()
+        }
+      } catch (e) {
+        console.error(`[scanner] ${src.vendor} 处理变更失败: ${(e as Error).message}`)
       }
-      if (!f.endsWith('.jsonl') || f.includes('/subagents/')) continue
-      const v = claudeScanner.scanFile(f)
-      if (!v) continue
-      views.push(v)
-      hub.ingestProgress(claudeScanner.readProgress(f, v.id))
     }
-    if (pidsChanged) hub.applyScan(claudeScanner.scanAll())
-    else if (views.length) hub.applyScan(views)
-    // 静默期过后再扫一次，让 running → idle 及时生效
-    if (views.length) {
-      const t = setTimeout(() => {
-        const again = [...files].filter((f) => f.endsWith('.jsonl')).map((f) => claudeScanner.scanFile(f))
-        hub.applyScan(again.filter((v): v is SessionView => !!v))
-      }, quiet + 200)
-      t.unref()
-    }
+    stops.push(watchDirs(src.watchDirs(), onFiles, src.watchDebounceMs))
   }
-  const stopWatch = watchDirs([claudeScanner.projectsDir, claudeScanner.sessionsDir], onFiles)
-  const stopReconcile = every(cfg.scanner.reconcileSeconds * 1000, () => {
-    hub.applyScan(claudeScanner.scanAll())
-    void probeBinaries(cfg).then((v) => (vendors = v))
-  })
+  stops.push(
+    every(cfg.scanner.reconcileSeconds * 1000, () => {
+      for (const src of Object.values(sources)) hub.applyScan(src.scanAll())
+      void probeBinaries(cfg).then((v) => (vendors = v))
+    }),
+  )
 
-  const server = await startGateway({ cfg, store, bus, hub, version: VERSION, vendors: () => vendors })
+  const server = await startGateway({
+    cfg,
+    store,
+    bus,
+    hub,
+    version: VERSION,
+    vendors: () => vendors,
+    history: (s, limit) => sources[s.vendor].history?.(s.vendorSessionId, limit),
+  })
   console.log(`[gateway] 监听 http://${cfg.listen.host}:${cfg.listen.port}  数据目录 ${cfg.dataDir}`)
 
   let closing = false
@@ -102,8 +112,7 @@ async function serve() {
     if (closing) return
     closing = true
     console.log(`[hub] 收到 ${sig}，退出`)
-    stopWatch()
-    stopReconcile()
+    for (const stop of stops) stop()
     hub.abortAll()
     server.close()
     setTimeout(() => {

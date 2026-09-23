@@ -4,7 +4,7 @@ import { Hono } from 'hono'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { BinaryStatus, HubConfig } from '../config.ts'
 import type { Bus, Published } from '../core/bus.ts'
-import type { Vendor } from '../core/events.ts'
+import type { HistoryItem, SessionView, Vendor } from '../core/events.ts'
 import type { AckResult, Hub } from '../core/sessions.ts'
 import type { DeviceRow, Store } from '../core/store.ts'
 import { authenticate, bearer, pairDevice } from './auth.ts'
@@ -17,6 +17,8 @@ export interface GatewayDeps {
   hub: Hub
   version: string
   vendors: () => Record<Vendor, BinaryStatus>
+  /** 从厂商存储读会话历史（目前 Cursor：IDE 消息 + CLI 续聊）；返回 undefined 表示该厂商不提供 */
+  history?: (s: SessionView, limit: number) => HistoryItem[] | undefined
   log?: (msg: string) => void
 }
 
@@ -77,7 +79,13 @@ export function createApp(d: GatewayDeps) {
   app.get('/api/sessions/:id', (c) => {
     const s = store.getSession(c.req.param('id'))
     if (!s) return c.json({ error: 'not found' }, 404)
-    return c.json({ ...s, events: store.recentEvents(s.id, 200) })
+    let messages: HistoryItem[] | undefined
+    try {
+      messages = d.history?.(s, Math.min(toInt(c.req.query('messages'), 50)!, 200))
+    } catch (e) {
+      log(`读取会话历史失败 ${s.id}: ${(e as Error).message}`)
+    }
+    return c.json({ ...s, events: store.recentEvents(s.id, 200), ...(messages ? { messages } : {}) })
   })
 
   app.get('/api/sessions/:id/events', (c) => {

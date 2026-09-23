@@ -19,16 +19,25 @@
 - origin：`claude-desktop`→desktop，`cli`→cli，Hub 自己起的→hub（Core 标记）。
 
 ## Codex（scanner/codex.ts）
-- 只读打开 `~/.codex/state_5.sqlite`（`readOnly:true`），`SELECT ... FROM threads ORDER BY updated_at DESC`。
+- 只读打开 `~/.codex/state_5.sqlite`（`readOnly:true`），`SELECT ... FROM threads WHERE COALESCE(updated_at_ms, updated_at*1000) >= <recentDays>`。
 - `rollout_path` 不存在 → `resumable=false, unresumable_reason='无本地会话文件（ChatGPT 聊天线程）'`。
-- title 取 `title`，为空取 `first_user_message`。
-- 进度：tail `rollout_path`；行 `type` 见 recordings/codex/exec-one-turn（rollout 格式与 exec 输出相近，以实际文件为准，先录一份到 recordings/codex/rollout-sample.jsonl）。
-- 空闲：rollout 文件最后写入距今 > `idleQuietMs.codex`。
+- title 取 `name`，再 `title`，为空取 `first_user_message`；preview 取 rollout 尾部最后一条 AgentMessage。
+- origin：`originator='agent-hub'`→hub，`source='vscode'`→desktop，其余→cli。
+- 进度：tail `rollout_path`，格式见 `recordings/codex/rollout-sample.jsonl`：`task_started`→turn.started，`item_completed{UserMessage}`→message.user，`item_completed{AgentMessage}`→message.delta，`function_call/custom_tool_call`→tool.call started，`item_completed{CommandExecution|FileChange|McpToolCall|WebSearch}`→tool.call done，`task_complete`→turn.done success，`turn_aborted`→turn.done interrupted。
+- 空闲：以下任一即 running，否则 idle。
+  - 线程写锁 `~/.codex/thread-writer-locks/<id>.lock` 被进程打开（`lsof`）：GUI 正打开着该线程。
+  - rollout 最后写入距今 ≤ `idleQuietMs.codex`。
+  - 最后一轮未收尾（`task_started` 之后没有 `task_complete/turn_aborted`），且本机有活的 codex 进程；没有 codex 进程时视为崩溃遗留。
+- 监听：递归监听 `~/.codex`，只处理 `state_5.sqlite*`（全量重扫）、`sessions/`/`archived_sessions/` 下的 rollout（增量进度 + 复查该线程）、`thread-writer-locks/*.lock`（复查该线程）。
 - archived：透传，UI 显示"已归档"，续聊前 Adapter 处理 unarchive。
 
 ## Cursor（scanner/cursor.ts）
-- 只读打开 `state.vscdb`。列表：`SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%' ORDER BY rowid DESC LIMIT ?`，逐条解析 JSON，按 `lastUpdatedAt` 过滤 recentDays。**禁止** `LIKE '%xxx%'` 扫 value。
-- 消息：按 `fullConversationHeadersOnly` 顺序点查 `bubbleId:<c>:<b>`，只在客户端 subscribe 时加载，且分页（最近 50 条）。
-- 进度：`generatingBubbleIds.length>0` 或 `status==='generating'` → running；否则 idle。fs.watch 监听 `state.vscdb-wal`。
-- 合并 `~/.cursor/chats/*/<composerId>/`：存在则把 `store.db` 中的消息接在 IDE 消息之后（blobs 表格式需先实测，录样本到 recordings/cursor/store-db-sample.json）。
-- cwd：IDE 侧 composerData 无 cwd 字段时，从 `~/.cursor/chats/.../meta.json` 或 workspace 映射推断；推断不到显示为空，仍允许续聊（`agent --resume` 不依赖 cwd）。
+- 只读打开 `state.vscdb`。列表：`SELECT <json_extract 取的小字段> FROM cursorDiskKV WHERE key >= 'composerData:' AND key < 'composerData;' AND lastUpdatedAt >= <recentDays>`，不整条解析 value。**禁止** `LIKE '%xxx%'` 扫 value。
+- 没有任何 header 且 `~/.cursor/chats` 里也没有消息的 composer（空草稿）不列出。
+- 列表 = IDE composer ∪ `~/.cursor/chats/*/<id>/`（纯 CLI 会话，含 Hub start 建的）。origin：IDE 有该 composer→desktop，只在 chats→cli，Hub 登记的→hub。
+- cwd：`composerData.workspaceIdentifier.uri.fsPath`，没有则取 `~/.cursor/chats/.../meta.json.cwd`；都没有显示为空，仍允许续聊（`agent --resume` 不依赖 cwd）。
+- title：IDE `name` → 首个 header 的 `textPreview` → chats meta 的 name（非默认 "New Agent"）→ 首条 `<user_query>`。
+- 运行：`generatingBubbleIds.length>0` 或 `status==='generating'` → running；chats 的 store.db 最近 `idleQuietMs.cursor` 内有写入也算 running；否则 idle。
+- 监听：`globalStorage/` 下 `state.vscdb*` 与 `~/.cursor/chats` 下 `store.db/meta.json` 变化 → 全量重扫（约 70ms，去抖 1 秒）。
+- 消息（会话详情 `GET /api/sessions/:id` 的 `messages`）：按 `fullConversationHeadersOnly` 取最近 N 条（默认 50）点查 `bubbleId:<c>:<b>`，再接上 `~/.cursor/chats/.../store.db` 里的消息，取最后 N 条。store.db 格式见 01（样本 `recordings/cursor/store-db-sample.json`，IDE 样本 `ide-composer-sample.json`）。
+- 已知限制：终端里交互式 `agent` 正在跑的会话无法判定（没有 pid 登记），只能靠 store.db 写入时间。

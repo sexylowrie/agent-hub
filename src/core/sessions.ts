@@ -142,9 +142,9 @@ export class Hub {
     if (s.state !== 'idle') return this.reject('SESSION_BUSY', `会话非空闲（state=${s.state}），桌面端可能仍打开着该会话`)
     const adapter = this.o.adapters[s.vendor]
     if (!adapter) return this.reject('VENDOR_UNSUPPORTED', `暂不支持 ${s.vendor}`)
-    if (!s.cwd) return this.reject('NOT_RESUMABLE', '会话缺少 cwd')
+    if (!s.cwd && adapter.requiresCwd !== false) return this.reject('NOT_RESUMABLE', '会话缺少 cwd')
     const turnId = randomUUID()
-    const cwd = s.cwd
+    const cwd = s.cwd ?? ''
     void this.runTurn(sessionId, turnId, force, (opts) => adapter.resume(s.vendorSessionId, cwd, text, opts))
     return { ok: true, data: { turnId } }
   }

@@ -58,9 +58,26 @@
 - `codex exec --json` 需 `</dev/null` 或 `--skip-git-repo-check`，否则等 stdin；事件类型见 `recordings/codex/exec-one-turn.ndjson`。
 - `codex mcp-server` 已被官方移除，不要用。
 
+### Codex · M1 实测补充（2026-09-24）
+- `threads` 表实际字段还有 `updated_at_ms`、`name`、`preview`、`recency_at_ms` 等；`updated_at` 单位是**秒**。Hub 自起 app-server 时 `clientInfo.name` 会落到 `originator`（Hub 用 `agent-hub`）。
+- `thread/resume` 参数可带 `approvalPolicy`、`sandbox`、`model`、`excludeTurns:true`（不回传历史 turns，Hub 用这个）。
+- **模型**：resume 沿用线程自己存的模型，`-c model=` **压不住**（gpt-5.2 线程 resume 后报 400）；`thread/resume` 传 `model` 能覆盖，但会**改写线程的模型**并持久化。Hub 策略：线程模型在 `~/.codex/models_cache.json` 的 `models[].slug` 里就沿用，不在才覆盖为 `config.codex.model`。本机当前可用：gpt-6-astra/sol/luna、gpt-5.6-*、gpt-5.5 等。
+- **遗留通知**：resume 后、本轮开始前会收到上一轮的 `thread/tokenUsage/updated`（turnId 是上一轮的）。解析只认本轮 turnId（`turn/start` 响应里的 `turn.id`）。样本：`recordings/codex/app-server-resume.ndjson`。
+- **中断**：`turn/interrupt {threadId, turnId}` → `{}` → `turn/completed{turn.status:"interrupted"}`；关 stdin 后进程立即退出（code 0）。样本：`app-server-interrupted.ndjson`。
+- **失败轮次**：先 `error{willRetry:false}` 通知，再 `turn/completed{status:"failed", turn.error}`。样本：`app-server-model-unsupported.ndjson`。
+- **文件审批**：`item/fileChange/requestApproval {threadId, turnId, itemId, reason, grantRoot}` **不带路径**，路径在此前 `item/started{type:fileChange}.changes[].path`。回执同命令审批。样本：`app-server-filechange-approval.ndjson`。
+- **归档**：`codex archive <id>` 会把 rollout 移到 `~/.codex/archived_sessions/` 并更新 `rollout_path`；`thread/unarchive` 移回。归档线程直接 resume 报 `session <id> is archived. Run codex unarchive <id> to unarchive it first.`（原文里命令带反引号）。样本：`app-server-unarchive-resume.ndjson`。
+- **线程写锁**：app-server 加载一个线程时持有 `~/.codex/thread-writer-locks/<threadId>.lock`（flock，文件保持打开；释放后文件删除）。ChatGPT App 里**正打开着**的线程由 GUI 的 app-server 持锁，此时另一个 app-server resume 报 `thread <id> already has an active writer`。Scanner 用 `lsof -Fn` 查锁文件是否被进程打开（约 150ms，只在有锁文件时查）。
+- 实测 GUI 里一轮早已结束（01:14）、线程仍停留在界面上时（01:38），锁一直被持有，Hub 视为不可续聊（state=running）。
+- **rollout 格式**（`recordings/codex/rollout-*.jsonl`）：`session_meta`、`event_msg{task_started|task_complete|turn_aborted|item_completed|token_count|thread_settings_applied}`、`response_item{message|function_call|function_call_output|custom_tool_call|reasoning|...}`、`world_state`、`turn_context`、`token_usage_record`、`compacted`。
+  - 一轮以 `task_started` 开始，以 `task_complete{last_agent_message,duration_ms}` 或 `turn_aborted{reason:"interrupted"}` 结束。
+  - 真实用户输入看 `event_msg.item_completed{item.type:"UserMessage"}`；`response_item` 里 role=user 的还有注入上下文（`# AGENTS.md instructions`、`<environment_context>`、`<recommended_plugins>`、`<turn_aborted>`）。
+  - `world_state` 带 `~/.codex/AGENTS.md` 全文，**录样本时必须裁掉**（`scripts/trim-codex-rollout.ts`）。
+  - 本机 37 份归档 rollout 里有 3 份以未收尾的 `task_started` 结尾（崩溃遗留），不能单凭"未收尾"判定运行中。
+
 ## Cursor
 - IDE 会话库：`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`，**约 10 GB**，WAL 模式。表 `cursorDiskKV(key, value)`。
-  - `composerData:<composerId>` → JSON：`name, status(none|completed|...), createdAt, lastUpdatedAt, isAgentic, unifiedMode, fullConversationHeadersOnly:[{bubbleId,type,createdAt}], generatingBubbleIds:[]`
+  - `composerData:<composerId>` → JSON：`name, status(none|completed|aborted|...), createdAt, lastUpdatedAt, isAgentic, unifiedMode, fullConversationHeadersOnly:[{bubbleId,type,createdAt,grouping.textPreview}], generatingBubbleIds:[], workspaceIdentifier.uri.fsPath`
   - `bubbleId:<composerId>:<bubbleId>` → JSON：`type(1=user,2=assistant), text, toolFormerData?, thinking?, tokenCount`
   - 当前 1631 个 composer。**只能按 key 点查**，禁止全表扫 value。
   - 只读打开：`file:...?mode=ro`（Python 已验证；Node `node:sqlite` 用 `{readOnly:true}`）。
@@ -70,6 +87,20 @@
 - `agent -p` 无中途审批；`--sandbox enabled` 或 `--force`。
 - `agent ls` 需要 TTY（Ink），不能在无头环境用；列表一律读库。
 - 偶发 `Connection stalled`，重试一次即可。
+
+### Cursor · M1 实测补充（2026-09-24）
+- **cwd**：composerData 有 `workspaceIdentifier.uri.fsPath`（IDE 工作区目录），1632 个里 527 个有（老会话没有）。原记录"composerData 无 cwd 字段"不准确。
+- 列表查询：`WHERE key >= 'composerData:' AND key < 'composerData;'` 配合 `json_extract` 只取小字段，1632 条冷启动约 450ms、热约 65ms；`LIKE 'composerData:%' ORDER BY rowid` 反而要 ~500ms。value 合计 76 MB，单条最大 3.7 MB，不要整条 `JSON.parse`。
+- bubble：`{type:1|2, text, toolFormerData?:{name,status,params,result}, createdAt}`；header 的 `grouping.textPreview` 可直接当预览。
+- **`~/.cursor/chats/<workspaceHash>/<composerId>/store.db`**：表 `meta(key,value)`、`blobs(id,data)`。
+  - `meta` 只有 key `'0'`，value 是 **hex 编码的 JSON**：`{agentId, latestRootBlobId, name("New Agent"), mode, createdAt, blobEncryptionKey}`。
+  - blob 按内容寻址（id 为 32 字节 hex）。根 blob 是 protobuf，**field 1 重复出现，按顺序列出消息 blob id**；其余字段含工作区 URI、token 拆分等。
+  - 消息 blob 是 JSON `{role:"system"|"user"|"assistant"|"tool", content}`。用户真实输入包在 `<user_query>…</user_query>` 里；每次拉起还会插一条约 55 KB 的注入上下文 user 消息（`<user_info>`、规则、技能等），要跳过。assistant content 里有 `text` / `reasoning` / `tool-call{toolName,args}`；tool 消息是 `tool-result{toolName,result}`。样本：`recordings/cursor/store-db-sample.json`。
+  - IDE 会话被 CLI 续聊后，store.db **只含 CLI 这几轮**，IDE 历史不在里面，详情要两边拼接。
+- **信任提示**：`agent -p` 在未信任目录（如 `/tmp`）直接退出 code 1，stderr `Workspace Trust Required … Pass --trust, --yolo, or -f`。Hub 一律带 `--trust`（cwd 已由 allowedCwds / 会话原工作区限定）。
+- **`--stream-partial-output`**：assistant 按片段输出（带 `timestamp_ms`），一段结束后再把这段全文整块输出一次（紧挨工具调用前的那次也带 `timestamp_ms`，最后一次不带）。Adapter 规则：整块文本等于累计片段时丢弃。样本：`recordings/cursor/resume-one-turn.ndjson`。
+- **SIGINT**：没有 `result` 行，stderr `Aborting operation...`，退出码 130。样本：`recordings/cursor/interrupted.ndjson`。
+- `agent -p` 从拉起到 `system.init` 实测约 15 秒（续聊 IDE 会话时），整轮 20–30 秒。
 
 ## 三家共性
 - 都是"本机进程 + 出站连接"，Hub 不需要开任何入站端口给厂商。

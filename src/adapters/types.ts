@@ -21,6 +21,8 @@ export interface RunOpts {
 
 export interface AgentAdapter {
   readonly vendor: Vendor
+  /** 续聊是否必须知道会话 cwd（默认 true）；为 false 时 cwd 可能传空串 */
+  readonly requiresCwd?: boolean
   resume(vendorSessionId: string, cwd: string, text: string, opts: RunOpts): AsyncIterable<HubEvent>
   /** 需产出 session.upsert 带新 id */
   start(cwd: string, text: string, opts: RunOpts): AsyncIterable<HubEvent>

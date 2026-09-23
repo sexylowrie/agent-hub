@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { homedir } from 'node:os'
 import { sessionKey, type HubEvent } from '../core/events.ts'
 import type { AgentAdapter, RunOpts } from './types.ts'
 import { AsyncQueue, onLines, safeParse, softKill, stderrTail } from './proc.ts'
@@ -178,6 +179,8 @@ export class CursorLineParser {
 
 export class CursorAdapter implements AgentAdapter {
   readonly vendor = 'cursor' as const
+  /** agent --resume 不依赖 cwd；IDE 会话推断不到工作区时在 home 下拉起 */
+  readonly requiresCwd = false
 
   constructor(private readonly bin: string) {}
 
@@ -208,7 +211,7 @@ export class CursorAdapter implements AgentAdapter {
       // start 的重试改为续接已拿到的会话，避免建出两个会话
       const resumeId = o.resumeId ?? (parser.sessionId ? parser.sessionId.slice('cursor:'.length) : undefined)
       const child = spawn(this.bin, cursorArgs({ resumeId, force: opts.force, text: o.text }), {
-        cwd: o.cwd,
+        cwd: o.cwd || homedir(),
         env: process.env,
         stdio: ['ignore', 'pipe', 'pipe'],
       })

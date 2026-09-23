@@ -19,7 +19,7 @@
 - [ ] M2 PWA
 - [ ] M3 常驻与打磨
 
-## 使用（M0）
+## 使用
 ```bash
 cp hub.config.example.json hub.config.json
 npm install
@@ -28,7 +28,12 @@ npm run hub -- pair                  # 打印一次性配对码（5 分钟）
 npm run hub -- devices list          # 已配对设备；devices revoke <name|id> 吊销
 npm test                             # 回放测试
 npm run typecheck
-npm run record -- claude             # 录一份 claude 事件流到 recordings/claude/
+npm run record -- claude             # 录一份事件流到 recordings/<vendor>/（claude | codex | cursor）
+npm run gen:codex                    # 重新生成 Codex app-server 协议类型（src/adapters/codex.types*）
 HUB_TOKEN=<token> npx tsx scripts/ws-client.ts send <sessionId> "<text>"   # 命令行 WS 客户端
 ```
 注：部分 curl 版本不接受 `:7788` 这种省略主机的写法，用 `127.0.0.1:7788`。
+
+续聊前提（M1）：
+- Codex：ChatGPT App 里**正打开着**的线程会被 GUI 持有写锁，Hub 显示为 running、拒绝续聊；在 App 里切到别的线程后即可。
+- Cursor：IDE 里正在生成时拒绝续聊；Hub 续聊写到 `~/.cursor/chats`，不回写 IDE 的 `state.vscdb`（Hub 会话详情会把两边拼起来）。

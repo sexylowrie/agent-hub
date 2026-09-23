@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs'
+import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -83,11 +83,20 @@ function userText(item: any): string | undefined {
 }
 
 /**
- * 空闲判定：rollout 最近 quietMs 内有写入 → running；
+ * 空闲判定：线程写锁被持有（GUI 打开着该线程，或有别的 app-server 在写）→ running；
+ * rollout 最近 quietMs 内有写入 → running；
  * 最后一轮未收尾（task_started 后没有 complete/aborted）且有活的 codex 进程 → running（GUI 可能在跑或等审批）；
  * 未收尾但本机没有任何 codex 进程 → 视为崩溃遗留，idle。宁可误判为 running。
  */
-export function codexState(o: { openTurn: boolean; mtimeMs: number; now: number; quietMs: number; codexAlive: () => boolean }): SessionState {
+export function codexState(o: {
+  openTurn: boolean
+  mtimeMs: number
+  now: number
+  quietMs: number
+  codexAlive: () => boolean
+  writerLocked?: boolean
+}): SessionState {
+  if (o.writerLocked) return 'running'
   if (o.now - o.mtimeMs <= o.quietMs) return 'running'
   if (o.openTurn && o.codexAlive()) return 'running'
   return 'idle'
@@ -147,12 +156,32 @@ export function modelOverrideFor(threadModel: string | null | undefined, availab
   return fallbackModel
 }
 
+/**
+ * 哪些锁文件正被进程打开（持有 flock）。Node 没有 flock API，用一次 lsof 批量查；
+ * lsof 在部分文件未被打开时退出码为 1，stdout 仍列出被打开的那些。查询失败时保守地视为全部持有。
+ */
+export function heldLockFiles(files: string[]): Set<string> {
+  if (!files.length) return new Set()
+  let out: string
+  try {
+    out = execFileSync('lsof', ['-Fn', '--', ...files], { encoding: 'utf8', timeout: 5000 })
+  } catch (e) {
+    const err = e as { status?: number; stdout?: string }
+    if (err.status !== 1) return new Set(files)
+    out = err.stdout ?? ''
+  }
+  return new Set(out.split('\n').filter((l) => l.startsWith('n')).map((l) => l.slice(1)))
+}
+
 export interface CodexScannerOpts {
   stateDb?: string
   recentDays: number
   quietMs: number
   isHubSession?: (threadId: string) => boolean
   codexAlive?: () => boolean
+  /** 默认 ~/.codex/thread-writer-locks */
+  locksDir?: string
+  heldLocks?: (files: string[]) => Set<string>
   now?: () => number
 }
 
@@ -165,6 +194,7 @@ interface FileMeta {
 export class CodexScanner {
   readonly stateDb: string
   readonly codexHome: string
+  readonly locksDir: string
   private db: DatabaseSync | undefined
   private meta = new Map<string, FileMeta>()
   private offsets = new Map<string, number>()
@@ -176,6 +206,7 @@ export class CodexScanner {
   constructor(private readonly o: CodexScannerOpts) {
     this.codexHome = join(homedir(), '.codex')
     this.stateDb = o.stateDb ?? join(this.codexHome, 'state_5.sqlite')
+    this.locksDir = o.locksDir ?? join(this.codexHome, 'thread-writer-locks')
     this.now = o.now ?? Date.now
   }
 
@@ -213,7 +244,22 @@ export class CodexScanner {
     return this.query((db) => db.prepare(`SELECT ${COLS} FROM threads WHERE id = ?`).get(id) as unknown as ThreadRow | undefined, undefined)
   }
 
-  private view(r: ThreadRow, codexAlive: () => boolean): SessionView {
+  /** 写锁被持有的线程 id（锁文件释放后会删除；进程崩溃可能留下无人持有的文件，所以还要查是否真被持有） */
+  lockedThreads(): Set<string> {
+    let names: string[]
+    try {
+      names = readdirSync(this.locksDir).filter((f) => f.endsWith('.lock') && !f.startsWith('.'))
+    } catch {
+      return new Set()
+    }
+    if (!names.length) return new Set()
+    const files = names.map((f) => join(this.locksDir, f))
+    // lsof 输出的是真实路径，按文件名比对
+    const held = new Set([...(this.o.heldLocks ?? heldLockFiles)(files)].map((f) => basename(f)))
+    return new Set(names.filter((f) => held.has(f)).map((f) => basename(f, '.lock')))
+  }
+
+  private view(r: ThreadRow, codexAlive: () => boolean, locked: Set<string>): SessionView {
     const now = this.now()
     const isHub = this.o.isHubSession?.(r.id) ?? false
     const title = r.name || r.title || r.first_user_message?.slice(0, TITLE_LEN) || null
@@ -247,7 +293,7 @@ export class CodexScanner {
       this.meta.set(r.rollout_path, m)
     }
     this.byPath.set(r.rollout_path, r.id)
-    v.state = codexState({ openTurn: m.tail.openTurn, mtimeMs: st.mtimeMs, now, quietMs: this.o.quietMs, codexAlive })
+    v.state = codexState({ openTurn: m.tail.openTurn, mtimeMs: st.mtimeMs, now, quietMs: this.o.quietMs, codexAlive, writerLocked: locked.has(r.id) })
     if (!v.cwd) {
       v.resumable = false
       v.unresumableReason = '线程缺少 cwd'
@@ -265,12 +311,13 @@ export class CodexScanner {
   scanAll(): SessionView[] {
     const cutoff = this.now() - this.o.recentDays * 86_400_000
     const alive = this.aliveProbe()
-    return this.threads(cutoff).map((r) => this.view(r, alive))
+    const locked = this.lockedThreads()
+    return this.threads(cutoff).map((r) => this.view(r, alive, locked))
   }
 
   refresh(threadId: string): SessionView | undefined {
     const r = this.thread(threadId)
-    return r ? this.view(r, this.aliveProbe()) : undefined
+    return r ? this.view(r, this.aliveProbe(), this.lockedThreads()) : undefined
   }
 
   /** 当前已知的 rollout 文件（首次扫描后用来记录 offset） */
