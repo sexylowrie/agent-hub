@@ -9,9 +9,13 @@
 ## Claude（scanner/claude.ts）
 - 遍历 `~/.claude/projects/*/*.jsonl`，跳过 `*/subagents/*`。
 - 读首个 `type:user` 行取 `entrypoint/cwd/sessionId`；`entrypoint==='sdk-cli'` 跳过；`isSidechain` 行跳过。
-- title：首条非 meta 用户消息前 60 字。preview：最后一条 assistant 文本。
+- preview：最后一条 assistant 文本。
 - 进度：记录每个文件的已读 offset，增量解析新行；`assistant` → message.delta，`tool_use/tool_result` → tool.call。
-- 空闲：最后一行 `type==='result'`，或最后写入距今 > `idleQuietMs.claude` 且 `~/.claude/sessions/*.json` 里没有该 sessionId 的活 pid。
+- 空闲：`~/.claude/sessions/*.json` 里**没有**该 sessionId 的活 pid，且最后写入距今 > `idleQuietMs.claude`。会话 jsonl 没有 `result` 行，不能靠它判断。
+- **只要有活 pid 就一律不可续聊**（state=running），哪怕文件很久没写：这意味着终端或 Desktop 还开着这个会话，手机再 `--resume` 会两个进程写同一个 jsonl。不读 `messagingSocketPath`、`status`、`notify_idle` 等未文档化字段。
+- （M1 之后）可用"pid 活 + 文件静默超过阈值"细分为 `attached`（桌面端打开中）与 `running`（正在跑），两者都不可续聊，只是文案不同。M0 不做。
+- title：优先最后一条 `ai-title.aiTitle`，否则首条非 meta、非命令包装的用户消息前 60 字。
+- `sdk-cli` 过滤例外：Hub 自己新建（origin=hub）的会话照常纳入。
 - origin：`claude-desktop`→desktop，`cli`→cli，Hub 自己起的→hub（Core 标记）。
 
 ## Codex（scanner/codex.ts）

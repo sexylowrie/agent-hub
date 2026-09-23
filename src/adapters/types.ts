@@ -1,0 +1,27 @@
+import type { ApprovalKind, Decision, HubEvent, Vendor } from '../core/events.ts'
+
+export interface ApprovalRequest {
+  kind: ApprovalKind
+  summary: string
+  /** 给客户端展示的详情 */
+  detail: unknown
+  /** 厂商原始请求，落 approvals.payload 用于回执 */
+  raw: unknown
+}
+
+export interface RunOpts {
+  /** Hub 轮次 id，Adapter 产出的事件都带上 */
+  turnId: string
+  force?: boolean
+  signal: AbortSignal
+  onApproval: (req: ApprovalRequest) => Promise<Decision>
+  /** 子进程拉起后回报 pid，用于 hub_turns 对账 */
+  onSpawn?: (pid: number) => void
+}
+
+export interface AgentAdapter {
+  readonly vendor: Vendor
+  resume(vendorSessionId: string, cwd: string, text: string, opts: RunOpts): AsyncIterable<HubEvent>
+  /** 需产出 session.upsert 带新 id */
+  start(cwd: string, text: string, opts: RunOpts): AsyncIterable<HubEvent>
+}

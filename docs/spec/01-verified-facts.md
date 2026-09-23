@@ -24,6 +24,13 @@
 - 无头输出：`--output-format stream-json` 事件类型见 `recordings/claude/one-turn-with-tool.ndjson`：`system(init|status|hook_started|hook_response)`、`stream_event`（Anthropic 流事件透传）、`assistant`、`user`（工具结果）、`rate_limit_event`、`result(success)`。
 - 权限审批：`--permission-prompt-tool stdio` + `--input-format stream-json` 时，stdout 出现 `{"type":"control_request","request_id":..,"request":{"subtype":"can_use_tool","tool_name":..,"input":..}}`，stdin 回 `{"type":"control_response","response":{"subtype":"success","request_id":..,"response":{"behavior":"allow"|"deny",...}}}`。样本见 `recordings/claude/permission-roundtrip.ndjson`。
 - 活动会话登记：`~/.claude/sessions/<pid>.json`，含 sessionId、cwd、pid、messagingSocketPath；可用于判断某会话是否有活进程。
+- **会话 jsonl 里没有 `type:"result"` 行**（result 只出现在 stream-json 输出里）。行类型实测有 `user/assistant/attachment/ai-title/mode/permission-mode/last-prompt/file-history-snapshot` 等。
+- `ai-title` 行：`{"type":"ai-title","aiTitle":"...","sessionId":...}`，Claude 自动生成的标题，可能出现多次，取最后一条。
+- 用户消息里有大量包装行：`isMeta:true`、`<command-name>`、`<local-command-stdout>`、`<local-command-caveat>` 等，取标题时要跳过。
+- 交互会话（终端 / Desktop 标签）**空闲等待输入时进程也一直活着**，`~/.claude/sessions/<pid>.json` 一直在。因此"有活 pid"只能说明会话被桌面端打开着，不能说明正在跑。
+- `claude -p`（含 Hub 自己 `--resume` / 新建）写入的 `entrypoint` 是 `sdk-cli`；本机 655 个会话文件里 532 个是 `sdk-cli`。Hub 新建的会话首行也是 `sdk-cli`，Scanner 需对 Hub 已登记的会话例外放行。
+- `claude -p` 不开 `--replay-user-messages` 时 stdout 不回显用户输入；不开 `--include-partial-messages` 时没有 `stream_event`，文本只在 `assistant` 整块里。
+- 会话文件大小可达 100 MB（本机 1.2 GB / 655 个），Scanner 只读头尾块，不整文件读。
 - 不要用 `--bare`（只认 API key，订阅登录不可用）。
 
 ## Codex（ChatGPT App 内置）

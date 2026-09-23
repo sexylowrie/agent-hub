@@ -1,0 +1,80 @@
+import { z } from 'zod'
+
+export const Vendor = z.enum(['claude', 'codex', 'cursor'])
+export type Vendor = z.infer<typeof Vendor>
+
+export const SessionState = z.enum(['idle', 'running', 'awaiting_approval', 'error', 'unknown'])
+export type SessionState = z.infer<typeof SessionState>
+
+export const Origin = z.enum(['desktop', 'cli', 'hub'])
+export type Origin = z.infer<typeof Origin>
+
+export const ApprovalKind = z.enum(['command', 'file_write', 'tool', 'other'])
+export type ApprovalKind = z.infer<typeof ApprovalKind>
+
+export const Decision = z.enum(['allow', 'deny', 'allow_session'])
+export type Decision = z.infer<typeof Decision>
+
+export const SessionView = z.object({
+  id: z.string(),
+  vendor: Vendor,
+  vendorSessionId: z.string(),
+  cwd: z.string().nullable(),
+  title: z.string().nullable(),
+  origin: Origin,
+  state: SessionState,
+  resumable: z.boolean(),
+  unresumableReason: z.string().optional(),
+  archived: z.boolean(),
+  lastMessagePreview: z.string().optional(),
+  vendorUpdatedAt: z.number().optional(),
+  updatedAt: z.number(),
+})
+export type SessionView = z.infer<typeof SessionView>
+
+const turnId = z.string().optional()
+
+export const HubEvent = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('session.upsert'), session: SessionView }),
+  z.object({ type: z.literal('session.state'), sessionId: z.string(), state: SessionState, reason: z.string().optional() }),
+  z.object({ type: z.literal('turn.started'), sessionId: z.string(), turnId: z.string(), source: z.enum(['desktop', 'hub']) }),
+  z.object({ type: z.literal('message.user'), sessionId: z.string(), turnId, text: z.string() }),
+  z.object({ type: z.literal('message.delta'), sessionId: z.string(), turnId, text: z.string() }),
+  z.object({ type: z.literal('thinking.delta'), sessionId: z.string(), turnId, text: z.string() }),
+  z.object({
+    type: z.literal('tool.call'),
+    sessionId: z.string(),
+    turnId,
+    callId: z.string(),
+    name: z.string(),
+    input: z.unknown(),
+    status: z.enum(['started', 'done']),
+    output: z.string().optional(),
+    isError: z.boolean().optional(),
+  }),
+  z.object({
+    type: z.literal('approval.request'),
+    sessionId: z.string(),
+    turnId,
+    approvalId: z.string(),
+    kind: ApprovalKind,
+    summary: z.string(),
+    detail: z.unknown(),
+    expiresAt: z.number(),
+  }),
+  z.object({ type: z.literal('approval.decided'), sessionId: z.string(), approvalId: z.string(), decision: Decision, by: z.string() }),
+  z.object({
+    type: z.literal('turn.done'),
+    sessionId: z.string(),
+    turnId,
+    status: z.enum(['success', 'error', 'interrupted']),
+    resultText: z.string().optional(),
+    usage: z.object({ input: z.number().optional(), output: z.number().optional() }).optional(),
+    durationMs: z.number().optional(),
+  }),
+  z.object({ type: z.literal('error'), sessionId: z.string().optional(), message: z.string(), recoverable: z.boolean() }),
+])
+export type HubEvent = z.infer<typeof HubEvent>
+export type HubEventType = HubEvent['type']
+
+export const sessionKey = (vendor: Vendor, vendorSessionId: string) => `${vendor}:${vendorSessionId}`
