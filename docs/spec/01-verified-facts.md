@@ -8,8 +8,8 @@
 | macOS | Darwin 25.3.0，Apple Silicon |
 | Node | v24.13.0（nvm），`node:sqlite` 可用 |
 | claude | 2.1.280，PATH 可用，claude.ai 订阅登录 |
-| codex | 0.155.0，二进制在 `/Applications/ChatGPT.app/Contents/Resources/codex`，ChatGPT 账号登录；**未**软链到 PATH |
-| cursor agent | 2026.03.25，PATH 里 `agent` 与 `cursor-agent` 同一程序，已 `agent login` |
+| codex | 0.155.0（`--version` → `codex-cli 0.155.0-alpha.9.2`），二进制在 `/Applications/ChatGPT.app/Contents/Resources/codex`，ChatGPT 账号登录；**未**软链到 PATH |
+| cursor agent | 2026.09.18（`agent --version` → `2026.09.18-9a7762b`，原记录 2026.03.25 已过时），PATH 里 `agent` 与 `cursor-agent` 同一程序，已 `agent login` |
 | Cursor IDE / ChatGPT App / Claude Desktop | 均已安装，会话期间通常在运行 |
 
 ## Claude Code
@@ -30,6 +30,9 @@
 - 交互会话（终端 / Desktop 标签）**空闲等待输入时进程也一直活着**，`~/.claude/sessions/<pid>.json` 一直在。因此"有活 pid"只能说明会话被桌面端打开着，不能说明正在跑。
 - `claude -p`（含 Hub 自己 `--resume` / 新建）写入的 `entrypoint` 是 `sdk-cli`；本机 655 个会话文件里 532 个是 `sdk-cli`。Hub 新建的会话首行也是 `sdk-cli`，Scanner 需对 Hub 已登记的会话例外放行。
 - `claude -p` 不开 `--replay-user-messages` 时 stdout 不回显用户输入；不开 `--include-partial-messages` 时没有 `stream_event`，文本只在 `assistant` 整块里。
+- 会话 jsonl 中每轮结束写一行 `{"type":"system","subtype":"turn_duration","durationMs":..}`，Scanner 用它产出桌面端 `turn.done`。
+- 审批回执 `allow_session`：`control_response` 里带 `updatedPermissions`（取 `permission_suggestions`，`destination` 改为 `session`），claude 接受无报错（M0 实测）。生效范围是 claude 建议的规则（如 `Bash(echo s1 *)`），**不是整个工具**，不同命令仍会再次请求审批。
+- Hub `--resume` 必须在会话原 cwd 下拉起（claude 按 cwd 编码目录找会话文件）。
 - 会话文件大小可达 100 MB（本机 1.2 GB / 655 个），Scanner 只读头尾块，不整文件读。
 - 不要用 `--bare`（只认 API key，订阅登录不可用）。
 

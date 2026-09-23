@@ -205,11 +205,15 @@ export function attachWs(server: Server, d: GatewayDeps) {
           c.subs.delete(m.sessionId)
           deviceSubs.get(device.id)!.delete(m.sessionId)
           return
-        case 'send':
-          // 发起者自动订阅，才能收到本轮事件
-          c.subs.add(m.sessionId)
-          deviceSubs.get(device.id)!.add(m.sessionId)
-          return ack(m.reqId, hub.send(m.sessionId, m.text, m.force))
+        case 'send': {
+          // 成功发起才自动订阅；Adapter 事件是异步产出的，不会漏
+          const r = hub.send(m.sessionId, m.text, m.force)
+          if (r.ok) {
+            c.subs.add(m.sessionId)
+            deviceSubs.get(device.id)!.add(m.sessionId)
+          }
+          return ack(m.reqId, r)
+        }
         case 'start': {
           const r = hub.start(m.vendor, m.cwd, m.text, m.force)
           if (r.ok) c.startTurns.add((r.data as { turnId: string }).turnId)
