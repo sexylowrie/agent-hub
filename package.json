@@ -12,7 +12,8 @@
     "hub": "tsx src/main.ts",
     "test": "node --import tsx --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "record": "tsx scripts/record.ts"
+    "record": "tsx scripts/record.ts",
+    "gen:codex": "bash scripts/gen-codex-types.sh"
   },
   "dependencies": {
     "hono": "^4.13.8",

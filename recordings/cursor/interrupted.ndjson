@@ -1,0 +1,3 @@
+<< {"type":"system","subtype":"init","apiKeySource":"login","cwd":"/private/tmp","session_id":"0374d6ce-5c10-4ad6-ae55-aeb6743d18fd","model":"Auto","permissionMode":"default","mcp_servers":[],"slash_commands":[],"skills":[],"plugins":[]}
+<< {"type":"user","message":{"role":"user","content":[{"type":"text","text":"写一篇 2000 字的文章介绍 TCP 拥塞控制，直接输出正文"}]},"session_id":"0374d6ce-5c10-4ad6-ae55-aeb6743d18fd"}
+>> [SIGINT]

@@ -1,0 +1,91 @@
+{
+ "composerData": {
+  "_v": 18,
+  "composerId": "dc0a49f7-ea72-4ce8-bfad-10db22d991b0",
+  "name": "General chat",
+  "status": "completed",
+  "createdAt": 1790183659283,
+  "lastUpdatedAt": 1790183659467,
+  "fullConversationHeadersOnly": [
+   {
+    "bubbleId": "6783a0ca-25d7-41da-97a4-aaf5b2f21508",
+    "type": 1,
+    "grouping": {
+     "isRenderable": true,
+     "hasText": true,
+     "isShortPlainText": true,
+     "textPreview": "hi",
+     "toolDisplayComputed": true
+    },
+    "contentHeightHint": 44,
+    "createdAt": "2026-09-23T17:14:19.472Z"
+   },
+   {
+    "bubbleId": "10c63803-d1f3-41ac-ac93-da6c6d6c4c35",
+    "type": 2,
+    "grouping": {
+     "isRenderable": true,
+     "capabilityType": 30,
+     "hasThinking": true,
+     "thinkingDurationMs": 1,
+     "toolDisplayComputed": true
+    },
+    "createdAt": "2026-09-23T17:14:23.002Z",
+    "startedAtMs": 1790183663002
+   },
+   {
+    "bubbleId": "941f76f5-2a75-47c0-8c32-43eaff112131",
+    "type": 2,
+    "grouping": {
+     "isRenderable": true,
+     "hasText": true,
+     "isShortPlainText": true,
+     "textPreview": "你好，需要我帮你做什么？",
+     "turnDurationMs": 2100,
+     "isKeptFinalAiVisibleOutsideWorkedForGroup": true,
+     "toolDisplayComputed": true
+    },
+    "createdAt": "2026-09-23T17:14:23.004Z",
+    "startedAtMs": 1790183663004,
+    "contentHeightHint": 44
+   }
+  ],
+  "generatingBubbleIds": [],
+  "workspaceIdentifier": {
+   "id": "8890ee1bdd1868e149ab9dd881ce0719",
+   "uri": {
+    "$mid": 1,
+    "fsPath": "/Users/dev/AiProject/demo-app",
+    "external": "file:///Users/dev/AiProject/demo-app",
+    "path": "/Users/dev/AiProject/demo-app",
+    "scheme": "file"
+   }
+  },
+  "isAgentic": true,
+  "unifiedMode": "agent",
+  "isDraft": false
+ },
+ "bubbles": {
+  "6783a0ca-25d7-41da-97a4-aaf5b2f21508": {
+   "_v": 3,
+   "bubbleId": "6783a0ca-25d7-41da-97a4-aaf5b2f21508",
+   "type": 1,
+   "text": "hi",
+   "createdAt": "2026-09-23T17:14:19.472Z"
+  },
+  "10c63803-d1f3-41ac-ac93-da6c6d6c4c35": {
+   "_v": 3,
+   "bubbleId": "10c63803-d1f3-41ac-ac93-da6c6d6c4c35",
+   "type": 2,
+   "text": "",
+   "createdAt": "2026-09-23T17:14:23.002Z"
+  },
+  "941f76f5-2a75-47c0-8c32-43eaff112131": {
+   "_v": 3,
+   "bubbleId": "941f76f5-2a75-47c0-8c32-43eaff112131",
+   "type": 2,
+   "text": "你好，需要我帮你做什么？",
+   "createdAt": "2026-09-23T17:14:23.004Z"
+  }
+ }
+}

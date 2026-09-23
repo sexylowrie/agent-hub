@@ -1,0 +1,602 @@
+{
+ "meta": {
+  "agentId": "782a8d20-bbae-4776-9cda-17cce05b3b92",
+  "latestRootBlobId": "5ce2ab863a1f1216e99426d0ea43b107ed2aca5f3f6ac0288f47210362ce8eb5",
+  "name": "New Agent",
+  "createdAt": 1790184194959,
+  "mode": "default",
+  "isRunEverything": false
+ },
+ "root": {
+  "id": "5ce2ab863a1f1216e99426d0ea43b107ed2aca5f3f6ac0288f47210362ce8eb5",
+  "hex": "0a20fb7869166ef9e54f87fd965fdb2fc860d5d55c2ab40dd20880876b05067ad6b80a2003b27a53e4fa5229dc9cac7f71d4bb71496b3b031e4b7eac33e1dab3d6440a220a209e20009dde9dec55a1c8ac007eab873e5653cf923ac08839a676ef5be86858e50a207b686ae7a8906d0b8ee0f4a04f81c020661ea14609d7025b8947dced8e5f713b0a20416b103c8eb082c6b5fa61231987408983e48fbe7bcdd0ac8bf0420e3a04aa800a20735edbcd22736b85d9a728f18c2368f520abaff8d354cb8765192df39f79adc00a20324616233e3c795a6fcb94aa050de6cc1d59e17cde622f0813bf677bebba1f950a20ea69d8b50e79ca8d1ecaf431ef6f4fa347fa7acd66457fdad7a5d5a3994d3fb00a20c456bb67c631ff55524761415782c0244ee013df0ab9d3bda1b735332f6bce250a20e475b69938d5c864b5dd92b7e27cd4acf6b08a9767b54865202c120af7426f920a20d6b468bbb51cb9a9a570671c79f24e9ddadd3422d44a3cf07a8bd34b8ca85ad40a20d118d45fd75eddc6167242719af046dff05af9faf3ab2312ef8c2ae3abf0d63b2aae0208ac94011080d00f1aa30208ac94011080d00f1a240a0d73797374656d5f70726f6d7074120d53797374656d2070726f6d707418c50420a20f1a1f0a05746f6f6c731210546f6f6c20646566696e6974696f6e7318e91f20846b1a140a0572756c6573120552756c657318881920a6541a170a06736b696c6c731206536b696c6c7318c92c20fa95011a200a036d637012134d435020262064796e616d696320746f6f6c7318b208209b1c1a270a097375626167656e747312145375626167656e7420646566696e6974696f6e7318f70d20f22e1a340a1773756d6d6172697a65645f636f6e766572736174696f6e121753756d6d6172697a656420636f6e766572736174696f6e20001a220a0c636f6e766572736174696f6e120c436f6e766572736174696f6e18841420923a42200272ba842ee2fb9c09544b582603522bd6ec0212e03c0f73235eaaeb6a52b87c42204183ea3345d1294b17fe772219432681e0fb3b02f5c8dc5057176e8d994f70654220cec453c6e2007bf1cfaad1d172710fb9cc7d5218a051d49c4ef4fe2bea65de8f4a1366696c653a2f2f2f707269766174652f746d705001b20103636c69d001f7a0adfa8c34da010d417369612f5368616e67686169b2022436343433356332382d313535342d343164652d623836372d353530636430636538306532b2022435653233663631392d353564312d346337392d626530382d363466636235373666393965b2022461303139376165322d306665382d346433642d613366362d353761373864663964323461b80200"
+ },
+ "messages": [
+  {
+   "id": "fb7869166ef9e54f87fd965fdb2fc860d5d55c2ab40dd20880876b05067ad6b8",
+   "json": {
+    "role": "system",
+    "content": "You are an AI coding assistant, powered by Composer. You are an interactive CLI tool that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.\n\nYour main goal is to follow the USER's instructions, which are denoted by the <user_qu…",
+    "providerOptions": {
+     "cursor": {
+      "systemPromptFingerprint": {
+       "content": "1qjgsnw",
+       "mode": "1",
+       "model": "grok-4.5",
+       "agentType": "cli",
+       "toolNames": "dy4f38",
+       "mcp": "ztntfp",
+       "rules": "1u493a6",
+       "featureFlags": "1myrlka",
+       "promptOptions": "false|false"
+      }
+     }
+    }
+   }
+  },
+  {
+   "id": "03b27a53e4fa5229dc9cac7f71d4bb71496b3b031e4b7eac33e1dab3d6440a22",
+   "json": {
+    "role": "user",
+    "content": "<user_info>\nOS Version: darwin 25.3.0\n\nShell: zsh\n\nWorkspace Path: /private/tmp\nIf editing a git workspace within your current directory, do not search or edit non-primary worktrees unless the user explicitly requests you to do so.\n\nIs directory a git repo: No\n\nTerminals folder: /Users/dev/.cursor…",
+    "providerOptions": {
+     "cursor": {
+      "requestContextCompleteness": {
+       "rules": true,
+       "env": true,
+       "repositoryInfo": true,
+       "customSubagents": true,
+       "agentSkills": true,
+       "gitRepos": true,
+       "gitStatus": true,
+       "mcp": true,
+       "mcpFileSystem": true
+      },
+      "userInfoSummarizationEpoch": 0,
+      "userInfoTeamRulesFingerprint":"000000",
+      "omitCloudWorkerProcedure": false,
+      "useProjectCoordinatorPrompting": false
+     }
+    }
+   }
+  },
+  {
+   "id": "9e20009dde9dec55a1c8ac007eab873e5653cf923ac08839a676ef5be86858e5",
+   "json": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "<timestamp>Thursday, Sep 24, 2026, 1:23 AM (UTC+8)</timestamp>\n<user_query>\n只回复两个字：收到\n</user_query>"
+     }
+    ],
+    "providerOptions": {
+     "cursor": {
+      "requestId": "03c7d7bf-09a2-45da-b7ad-76bdc62f6084"
+     }
+    }
+   }
+  },
+  {
+   "id": "7b686ae7a8906d0b8ee0f4a04f81c020661ea14609d7025b8947dced8e5f713b",
+   "json": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "reasoning",
+      "text": "",
+      "signature": "",
+      "providerOptions": {
+       "cursor": {
+        "modelName": "cursor-grok-4.5-high"
+       }
+      }
+     },
+     {
+      "type": "text",
+      "text": "收到"
+     }
+    ],
+    "id": "msg_f46967df-c467-9f54-b2b9-02d2838f6664",
+    "providerOptions": {
+     "cursor": {
+      "modelProviderMessageId": "msg_f46967df-c467-9f54-b2b9-02d2838f6664"
+     }
+    }
+   }
+  },
+  {
+   "id": "416b103c8eb082c6b5fa61231987408983e48fbe7bcdd0ac8bf0420e3a04aa80",
+   "json": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "<timestamp>Thursday, Sep 24, 2026, 1:23 AM (UTC+8)</timestamp>\n<user_query>\n用 shell 执行 `echo hub-probe > /tmp/hub-record-probe.txt`，完成后只回复两个字：收到\n</user_query>"
+     }
+    ],
+    "providerOptions": {
+     "cursor": {
+      "requestId": "87d700c5-be05-49df-ad8d-8cd4fbef6b4b"
+     }
+    }
+   }
+  },
+  {
+   "id": "735edbcd22736b85d9a728f18c2368f520abaff8d354cb8765192df39f79adc0",
+   "json": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "reasoning",
+      "text": "",
+      "signature": "",
+      "providerOptions": {
+       "cursor": {
+        "modelName": "cursor-grok-4.5-high"
+       }
+      }
+     },
+     {
+      "type": "text",
+      "text": "正在执行命令。"
+     },
+     {
+      "type": "tool-call",
+      "toolCallId": "call-4bc9ddfa-ce93-4e57-9f51-fce67cb42ff7-0\nfc_21aff298-cd5d-972b-aa63-81b2751b04f7_0",
+      "toolName": "Shell",
+      "args": {
+       "command": "echo hub-probe > /tmp/hub-record-probe.txt",
+       "description": "Write hub-probe to temp file"
+      }
+     }
+    ],
+    "id": "msg_21aff298-cd5d-972b-aa63-81b2751b04f7",
+    "providerOptions": {
+     "cursor": {
+      "modelProviderMessageId": "msg_21aff298-cd5d-972b-aa63-81b2751b04f7"
+     }
+    }
+   }
+  },
+  {
+   "id": "324616233e3c795a6fcb94aa050de6cc1d59e17cde622f0813bf677bebba1f95",
+   "json": {
+    "role": "tool",
+    "content": [
+     {
+      "type": "tool-result",
+      "toolCallId": "call-4bc9ddfa-ce93-4e57-9f51-fce67cb42ff7-0\nfc_21aff298-cd5d-972b-aa63-81b2751b04f7_0",
+      "toolName": "Shell",
+      "result": "Exit code: 0\n\nCommand output:\n\n```\n\n```\n\nCommand completed in 301 ms.\n\nShell state (cwd, env vars) persists for subsequent calls.\n\nSANDBOXING: This command ran in a sandbox with the following restrictions:\n- Filesystem: Write access limited to the workspace directory, read access to the rest of the …",
+      "experimental_content": [
+       {
+        "type": "text",
+        "text": "Exit code: 0\n\nCommand output:\n\n```\n\n```\n\nCommand completed in 301 ms.\n\nShell state (cwd, env vars) persists for subsequent calls.\n\nSANDBOXING: This command ran in a sandbox with the following restrictions:\n- Filesystem: Write access limited to the workspace directory, read access to the rest of the …"
+       }
+      ]
+     }
+    ],
+    "id": "call-4bc9ddfa-ce93-4e57-9f51-fce67cb42ff7-0\nfc_21aff298-cd5d-972b-aa63-81b2751b04f7_0",
+    "providerOptions": {
+     "cursor": {
+      "highLevelToolCallResult": {
+       "output": {
+        "success": {
+         "command": "echo hub-probe > /tmp/hub-record-probe.txt",
+         "executionTime": 2971,
+         "interleavedOutput": "",
+         "localExecutionTimeMs": 301
+        },
+        "sandboxPolicy": {
+         "type": "TYPE_WORKSPACE_READWRITE",
+         "networkAccess": true,
+         "additionalReadwritePaths": [
+          "/private/tmp"
+         ],
+         "additionalReadonlyPaths": [
+          "/etc/ssl/cert.pem",
+          "/etc/ssl/ca-bundle.pem",
+          "/private/etc/ssl/cert.pem",
+          "/etc/ssl/certs/ca-certificates.crt",
+          "/etc/pki/tls/certs/ca-bundle.crt",
+          "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+          "/Users/dev/.cursor/sandbox-policies"
+         ],
+         "enableSharedBuildCache": true,
+         "networkPolicy": {
+          "version": 1,
+          "defaultAction": "DEFAULT_ACTION_DENY",
+          "allow": [
+           "public.ecr.aws",
+           "awscli.amazonaws.com",
+           "anaconda.com",
+           "azure.com",
+           "cloudflarestorage.com",
+           "*.cloudflarestorage.com",
+           "docker.com",
+           "*.docker.com",
+           "github.com",
+           "codeload.github.com",
+           "githubusercontent.com",
+           "*.githubusercontent.com",
+           "gitlab.com",
+           "google.com",
+           "dl.google.com",
+           "*.googleapis.com",
+           "*.gvt1.com",
+           "hashicorp.com",
+           "java.com",
+           "microsoft.com",
+           "dotnet.microsoft.com",
+           "mcr.microsoft.com",
+           "packages.microsoft.com",
+           "npmjs.com",
+           "oracle.com",
+           "ubuntu.com",
+           "archive.ubuntu.com",
+           "security.ubuntu.com",
+           "public.blob.vercel-storage.com",
+           "*.public.blob.vercel-storage.com",
+           "visualstudio.com",
+           "yarnpkg.com",
+           "*.yarnpkg.com",
+           "pkg.go.dev",
+           "*.anysphere.workers.dev",
+           "*.jdx.dev",
+           "pub.dev",
+           "crates.io",
+           "index.crates.io",
+           "static.crates.io",
+           "docker.io",
+           "*.docker.io",
+           "gcr.io",
+           "ghcr.io",
+           "goproxy.io",
+           "k8s.io",
+           "packagecloud.io",
+           "pypa.io",
+           "quay.io",
+           "rvm.io",
+           "spring.io",
+           "playwright.azureedge.net",
+           "dot.net",
+           "java.net",
+           "launchpad.net",
+           "ppa.launchpad.net",
+           "sourceforge.net",
+           "alpinelinux.org",
+           "apache.org",
+           "archlinux.org",
+           "bitbucket.org",
+           "centos.org",
+           "cocoapods.org",
+           "cpan.org",
+           "debian.org",
+           "npm.duckdb.org",
+           "eclipse.org",
+           "fedoraproject.org",
+           "golang.org",
+           "proxy.golang.org",
+           "sum.golang.org",
+           "gradle.org",
+           "haskell.org",
+           "json-schema.org",
+           "apt.llvm.org",
+           "maven.org",
+           "metacpan.org",
+           "nodejs.org",
+           "npmjs.org",
+           "registry.npmjs.org",
+           "nuget.org",
+           "packagist.org",
+           "pypi.org",
+           "pypi.python.org",
+           "pythonhosted.org",
+           "files.pythonhosted.org",
+           "ruby-lang.org",
+           "rubygems.org",
+           "rubyonrails.org",
+           "static.rust-lang.org",
+           "json.schemastore.org",
+           "swift.org",
+           "ziglang.org",
+           "hex.pm",
+           "rustup.rs",
+           "sh.rustup.rs",
+           "mise.run",
+           "binaries.prisma.sh",
+           "fonts.gstatic.com",
+           "repo.maven.apache.org",
+           "registry.yarnpkg.com"
+          ]
+         },
+         "networkPolicyStrict": true,
+         "readBoundary": "READ_BOUNDARY_MODE_SYSTEM"
+        },
+        "isBackground": false,
+        "terminalsFolder": "/Users/dev/.cursor/projects/private-tmp/terminals"
+       },
+       "isError": false
+      }
+     }
+    }
+   }
+  },
+  {
+   "id": "ea69d8b50e79ca8d1ecaf431ef6f4fa347fa7acd66457fdad7a5d5a3994d3fb0",
+   "json": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "reasoning",
+      "text": "",
+      "signature": "",
+      "providerOptions": {
+       "cursor": {
+        "modelName": "cursor-grok-4.5-high"
+       }
+      }
+     },
+     {
+      "type": "text",
+      "text": "收到"
+     }
+    ],
+    "id": "msg_06dd8723-9ae8-92f8-ba88-1d135f134c86",
+    "providerOptions": {
+     "cursor": {
+      "modelProviderMessageId": "msg_06dd8723-9ae8-92f8-ba88-1d135f134c86"
+     }
+    }
+   }
+  },
+  {
+   "id": "c456bb67c631ff55524761415782c0244ee013df0ab9d3bda1b735332f6bce25",
+   "json": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "<timestamp>Thursday, Sep 24, 2026, 1:25 AM (UTC+8)</timestamp>\n<user_query>\n先用一句话说你要做什么，然后用 shell 执行 echo hub-probe，最后用一句话总结结果\n</user_query>"
+     }
+    ],
+    "providerOptions": {
+     "cursor": {
+      "requestId": "92e5f74e-7f63-497f-b745-503f0e36f19c"
+     }
+    }
+   }
+  },
+  {
+   "id": "e475b69938d5c864b5dd92b7e27cd4acf6b08a9767b54865202c120af7426f92",
+   "json": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "reasoning",
+      "text": "",
+      "signature": "",
+      "providerOptions": {
+       "cursor": {
+        "modelName": "cursor-grok-4.5-high"
+       }
+      }
+     },
+     {
+      "type": "text",
+      "text": "我要用 shell 执行 `echo hub-probe`。"
+     },
+     {
+      "type": "tool-call",
+      "toolCallId": "call-255a20e4-57d4-48ca-8114-29d46c222ff2-1\nfc_07de2c7c-5611-996e-ae72-00da76f91161_0",
+      "toolName": "Shell",
+      "args": {
+       "command": "echo hub-probe",
+       "description": "Echo hub-probe to stdout"
+      }
+     }
+    ],
+    "id": "msg_07de2c7c-5611-996e-ae72-00da76f91161",
+    "providerOptions": {
+     "cursor": {
+      "modelProviderMessageId": "msg_07de2c7c-5611-996e-ae72-00da76f91161"
+     }
+    }
+   }
+  },
+  {
+   "id": "d6b468bbb51cb9a9a570671c79f24e9ddadd3422d44a3cf07a8bd34b8ca85ad4",
+   "json": {
+    "role": "tool",
+    "content": [
+     {
+      "type": "tool-result",
+      "toolCallId": "call-255a20e4-57d4-48ca-8114-29d46c222ff2-1\nfc_07de2c7c-5611-996e-ae72-00da76f91161_0",
+      "toolName": "Shell",
+      "result": "Exit code: 0\n\nCommand output:\n\n```\nhub-probe\n\n```\n\nCommand completed in 283 ms.\n\nShell state (cwd, env vars) persists for subsequent calls.\n\nSANDBOXING: This command ran in a sandbox with the following restrictions:\n- Filesystem: Write access limited to the workspace directory, read access to the re…",
+      "experimental_content": [
+       {
+        "type": "text",
+        "text": "Exit code: 0\n\nCommand output:\n\n```\nhub-probe\n\n```\n\nCommand completed in 283 ms.\n\nShell state (cwd, env vars) persists for subsequent calls.\n\nSANDBOXING: This command ran in a sandbox with the following restrictions:\n- Filesystem: Write access limited to the workspace directory, read access to the re…"
+       }
+      ]
+     }
+    ],
+    "id": "call-255a20e4-57d4-48ca-8114-29d46c222ff2-1\nfc_07de2c7c-5611-996e-ae72-00da76f91161_0",
+    "providerOptions": {
+     "cursor": {
+      "highLevelToolCallResult": {
+       "output": {
+        "success": {
+         "command": "echo hub-probe",
+         "stdout": "hub-probe\n",
+         "executionTime": 2851,
+         "interleavedOutput": "hub-probe\n",
+         "localExecutionTimeMs": 283
+        },
+        "sandboxPolicy": {
+         "type": "TYPE_WORKSPACE_READWRITE",
+         "networkAccess": true,
+         "additionalReadwritePaths": [
+          "/private/tmp"
+         ],
+         "additionalReadonlyPaths": [
+          "/etc/ssl/cert.pem",
+          "/etc/ssl/ca-bundle.pem",
+          "/private/etc/ssl/cert.pem",
+          "/etc/ssl/certs/ca-certificates.crt",
+          "/etc/pki/tls/certs/ca-bundle.crt",
+          "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+          "/Users/dev/.cursor/sandbox-policies"
+         ],
+         "enableSharedBuildCache": true,
+         "networkPolicy": {
+          "version": 1,
+          "defaultAction": "DEFAULT_ACTION_DENY",
+          "allow": [
+           "public.ecr.aws",
+           "awscli.amazonaws.com",
+           "anaconda.com",
+           "azure.com",
+           "cloudflarestorage.com",
+           "*.cloudflarestorage.com",
+           "docker.com",
+           "*.docker.com",
+           "github.com",
+           "codeload.github.com",
+           "githubusercontent.com",
+           "*.githubusercontent.com",
+           "gitlab.com",
+           "google.com",
+           "dl.google.com",
+           "*.googleapis.com",
+           "*.gvt1.com",
+           "hashicorp.com",
+           "java.com",
+           "microsoft.com",
+           "dotnet.microsoft.com",
+           "mcr.microsoft.com",
+           "packages.microsoft.com",
+           "npmjs.com",
+           "oracle.com",
+           "ubuntu.com",
+           "archive.ubuntu.com",
+           "security.ubuntu.com",
+           "public.blob.vercel-storage.com",
+           "*.public.blob.vercel-storage.com",
+           "visualstudio.com",
+           "yarnpkg.com",
+           "*.yarnpkg.com",
+           "pkg.go.dev",
+           "*.anysphere.workers.dev",
+           "*.jdx.dev",
+           "pub.dev",
+           "crates.io",
+           "index.crates.io",
+           "static.crates.io",
+           "docker.io",
+           "*.docker.io",
+           "gcr.io",
+           "ghcr.io",
+           "goproxy.io",
+           "k8s.io",
+           "packagecloud.io",
+           "pypa.io",
+           "quay.io",
+           "rvm.io",
+           "spring.io",
+           "playwright.azureedge.net",
+           "dot.net",
+           "java.net",
+           "launchpad.net",
+           "ppa.launchpad.net",
+           "sourceforge.net",
+           "alpinelinux.org",
+           "apache.org",
+           "archlinux.org",
+           "bitbucket.org",
+           "centos.org",
+           "cocoapods.org",
+           "cpan.org",
+           "debian.org",
+           "npm.duckdb.org",
+           "eclipse.org",
+           "fedoraproject.org",
+           "golang.org",
+           "proxy.golang.org",
+           "sum.golang.org",
+           "gradle.org",
+           "haskell.org",
+           "json-schema.org",
+           "apt.llvm.org",
+           "maven.org",
+           "metacpan.org",
+           "nodejs.org",
+           "npmjs.org",
+           "registry.npmjs.org",
+           "nuget.org",
+           "packagist.org",
+           "pypi.org",
+           "pypi.python.org",
+           "pythonhosted.org",
+           "files.pythonhosted.org",
+           "ruby-lang.org",
+           "rubygems.org",
+           "rubyonrails.org",
+           "static.rust-lang.org",
+           "json.schemastore.org",
+           "swift.org",
+           "ziglang.org",
+           "hex.pm",
+           "rustup.rs",
+           "sh.rustup.rs",
+           "mise.run",
+           "binaries.prisma.sh",
+           "fonts.gstatic.com",
+           "repo.maven.apache.org",
+           "registry.yarnpkg.com"
+          ]
+         },
+         "networkPolicyStrict": true,
+         "readBoundary": "READ_BOUNDARY_MODE_SYSTEM"
+        },
+        "isBackground": false,
+        "terminalsFolder": "/Users/dev/.cursor/projects/private-tmp/terminals"
+       },
+       "isError": false
+      }
+     }
+    }
+   }
+  },
+  {
+   "id": "d118d45fd75eddc6167242719af046dff05af9faf3ab2312ef8c2ae3abf0d63b",
+   "json": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "reasoning",
+      "text": "",
+      "signature": "",
+      "providerOptions": {
+       "cursor": {
+        "modelName": "cursor-grok-4.5-high"
+       }
+      }
+     },
+     {
+      "type": "text",
+      "text": "命令已成功执行，输出为 `hub-probe`。"
+     }
+    ],
+    "id": "msg_99842eaf-1325-92c6-8368-eec719ef15d4",
+    "providerOptions": {
+     "cursor": {
+      "modelProviderMessageId": "msg_99842eaf-1325-92c6-8368-eec719ef15d4"
+     }
+    }
+   }
+  }
+ ]
+}
