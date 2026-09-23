@@ -20,7 +20,10 @@ claude -p --resume <id> --input-format stream-json --output-format stream-json \
        --verbose --include-partial-messages --permission-prompt-tool stdio \
        --permission-mode default
 ```
-- 通过 stdin 发 `{"type":"user","message":{"role":"user","content":text}}`，然后**保持 stdin 打开**直到收到 `result`，再关闭。
+- 通过 stdin 发 `{"type":"user","uuid":<随机 uuid>,"message":{"role":"user","content":text}}`，然后**保持 stdin 打开**直到收到**本轮**的 `result`，再关闭。
+- 本轮判定：只认 `command_lifecycle{command_uuid=该 uuid, state:started}` 之后的输出与 `result`；之前的（resume 时的遗留轮次）一律丢弃。若 `result` 到达时从未见过任何 lifecycle，先扣住 5 秒，仍无 lifecycle 则视为旧版 CLI 放行。`completed/cancelled` 在没有 `result` 时兜底结束本轮。
+- 关闭 stdin 后 3 秒未退出（后台任务会让进程一直挂着）→ SIGTERM，再 5 秒 SIGKILL。
+- 由 Hub 发起中断（SIGINT）后的 `error_during_execution` 记为 `turn.done{status:interrupted}`，不发 `error`。
 - `control_request.can_use_tool` → `onApproval`；回 `control_response`，allow 时带 `updatedInput: request.input`。
 - `start()` 不带 `--resume`，从 `system.init.session_id` 取新 id。
 - `--permission-mode` 默认 `default`；`force` 时用 `acceptEdits`，**不用** bypass。

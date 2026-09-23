@@ -32,6 +32,10 @@
 - `claude -p` 不开 `--replay-user-messages` 时 stdout 不回显用户输入；不开 `--include-partial-messages` 时没有 `stream_event`，文本只在 `assistant` 整块里。
 - 会话 jsonl 中每轮结束写一行 `{"type":"system","subtype":"turn_duration","durationMs":..}`，Scanner 用它产出桌面端 `turn.done`。
 - 审批回执 `allow_session`：`control_response` 里带 `updatedPermissions`（取 `permission_suggestions`，`destination` 改为 `session`），claude 接受无报错（M0 实测）。生效范围是 claude 建议的规则（如 `Bash(echo s1 *)`），**不是整个工具**，不同命令仍会再次请求审批。
+- **`command_lifecycle`**：stdin 的 user 消息带 `uuid` 时，stdout 输出 `{"type":"command_lifecycle","command_uuid":<该 uuid>,"state":"queued|started|completed|cancelled"}`，本轮的 `result` 夹在 started 与 completed 之间。不带 uuid 时不输出。`--replay-user-messages` 会回显该 user 消息（`isReplay:true`，uuid 原样）。
+- **后台任务**：模型用 `run_in_background` 起的命令，`result` 之后 `claude -p` 会**等后台任务结束才退出**，期间无输出（实测 sleep 60 → 进程多活约 60s）。
+- **遗留轮次**：上一轮后台任务在进程退出后才结束的，下次 `--resume` 时 claude 会先处理补排的 `<task-notification>`，输出一个**不属于本次输入**的空 `result`（`duration_ms`≈20，usage 为 0），再处理本次输入。该空 `result` **可能早于**本次输入的 `queued` 到达（真机观察到的竞态）。样本：`recordings/claude/resume-with-leftover-notification.ndjson`。
+- **SIGINT 中断**：输出 `user`（`[Request interrupted by user]`）→ `result{subtype:"error_during_execution",is_error:true}` → `command_lifecycle{state:"cancelled"}`，进程随即退出。样本：`recordings/claude/interrupted.ndjson`。
 - Hub `--resume` 必须在会话原 cwd 下拉起（claude 按 cwd 编码目录找会话文件）。
 - 会话文件大小可达 100 MB（本机 1.2 GB / 655 个），Scanner 只读头尾块，不整文件读。
 - 不要用 `--bare`（只认 API key，订阅登录不可用）。

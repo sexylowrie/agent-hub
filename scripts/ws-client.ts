@@ -2,13 +2,18 @@
 // 用法：
 //   tsx scripts/ws-client.ts send  <sessionId> <text> [--force] [--approve allow|deny|allow_session]
 //   tsx scripts/ws-client.ts start <vendor> <cwd> <text> [--approve ...]
+// 附加：--interrupt-after <ms>  send 成功后定时发 interrupt
 // 环境变量：HUB_TOKEN（必填）、HUB_URL（默认 ws://127.0.0.1:7788/ws）
 import { parseArgs } from 'node:util'
 import { WebSocket } from 'ws'
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
-  options: { approve: { type: 'string', default: 'allow' }, force: { type: 'boolean', default: false } },
+  options: {
+    approve: { type: 'string', default: 'allow' },
+    force: { type: 'boolean', default: false },
+    'interrupt-after': { type: 'string' },
+  },
 })
 const token = process.env.HUB_TOKEN
 if (!token) throw new Error('需要 HUB_TOKEN')
@@ -34,6 +39,12 @@ ws.on('message', (data) => {
   if (m.t === 'ack') {
     log(`ack ${m.reqId}: ${JSON.stringify(m.ok ? { ok: true, data: m.data } : { ok: false, code: m.code, message: m.message })}`)
     if (m.reqId === 'r1' && !m.ok) ws.close()
+    if (m.reqId === 'r1' && m.ok && cmd === 'send' && values['interrupt-after']) {
+      setTimeout(() => {
+        log('→ interrupt')
+        ws.send(JSON.stringify({ t: 'interrupt', reqId: 'r3', sessionId: args[0] }))
+      }, Number(values['interrupt-after']))
+    }
     return
   }
   if (m.t !== 'event') return

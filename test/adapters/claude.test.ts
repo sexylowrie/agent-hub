@@ -96,3 +96,71 @@ test('adapter-args-roundtrip：Adapter 实际参数（partial + stdio 审批）'
   assert.deepEqual(buildControlResponse(controls[0], 'allow'), recorded)
   assert.equal((events.at(-1) as any).resultText, '收到')
 })
+
+test('resume-with-leftover-notification：跳过遗留轮次的空 result，只认自家命令', () => {
+  const file = 'claude/resume-with-leftover-notification.ndjson'
+  const commandUuid = stdinLines(file).find((l) => l.type === 'user').uuid
+  const { events, done } = replay(file, { turnId: 't5', prompt: '只回复两个字：收到', vendorSessionId: 'x', commandUuid })
+  assert.ok(done)
+  assert.deepEqual(types(events), ['turn.started', 'message.user', 'message.delta', 'turn.done'])
+  const last = events.at(-1) as any
+  assert.equal(last.resultText, '收到')
+  assert.equal(events.filter((e) => e.type === 'turn.done').length, 1)
+
+  // 对照：不带 commandUuid（旧行为）会被遗留 result 提前结束
+  const legacy = replay(file, { turnId: 't6', prompt: 'p', vendorSessionId: 'x' })
+  assert.equal((legacy.events.find((e) => e.type === 'turn.done') as any).resultText, '')
+})
+
+test('竞态：遗留 result 早于自家 queued 到达时也不误判', () => {
+  // 真机上观察到的顺序：init → 遗留 result → queued → started …；用真实录制行重排模拟
+  const file = 'claude/resume-with-leftover-notification.ndjson'
+  const commandUuid = stdinLines(file).find((l) => l.type === 'user').uuid
+  const lines = stdoutLines(file)
+  const qi = lines.findIndex((l) => l.type === 'command_lifecycle' && l.state === 'queued')
+  const [queued] = lines.splice(qi, 1)
+  const ri = lines.findIndex((l) => l.type === 'result')
+  lines.splice(ri + 1, 0, queued)
+  const p = new ClaudeLineParser({ turnId: 't7', prompt: 'p', vendorSessionId: 'x', commandUuid })
+  const events: HubEvent[] = []
+  let deferred = 0
+  for (const l of lines) {
+    const r = p.feed(l)
+    events.push(...r.events)
+    if (r.deferred) deferred++
+  }
+  assert.equal(deferred, 1)
+  assert.deepEqual(p.flushDeferred().events, []) // 之后见到了 lifecycle，扣住的 result 作废
+  const done = events.filter((e) => e.type === 'turn.done') as any[]
+  assert.equal(done.length, 1)
+  assert.equal(done[0].resultText, '收到')
+})
+
+test('旧 CLI 兼容：无 lifecycle 时扣住的 result 经 flushDeferred 放行', () => {
+  const p = new ClaudeLineParser({ turnId: 't8', prompt: 'p', vendorSessionId: 'x', commandUuid: 'never-seen' })
+  let deferred = false
+  for (const l of stdoutLines('claude/one-turn-with-tool.ndjson')) if (p.feed(l).deferred) deferred = true
+  assert.ok(deferred)
+  const r = p.flushDeferred()
+  assert.ok(r.done)
+  assert.equal((r.events.at(-1) as any).resultText, '收到')
+})
+
+test('interrupted：SIGINT 后的 error_during_execution 记为 interrupted，不发 error', () => {
+  const file = 'claude/interrupted.ndjson'
+  const commandUuid = stdinLines(file).find((l) => l.type === 'user').uuid
+  const p = new ClaudeLineParser({ turnId: 't9', prompt: 'p', vendorSessionId: 'x', commandUuid })
+  p.markInterrupted()
+  const events: HubEvent[] = []
+  for (const l of stdoutLines(file)) events.push(...p.feed(l).events)
+  assert.ok(!events.some((e) => e.type === 'error'))
+  const done = events.filter((e) => e.type === 'turn.done') as any[]
+  assert.equal(done.length, 1)
+  assert.equal(done[0].status, 'interrupted')
+
+  // 未经 Hub 中断的同样输出仍是 error
+  const q = new ClaudeLineParser({ turnId: 't10', prompt: 'p', vendorSessionId: 'x', commandUuid })
+  const evs: HubEvent[] = []
+  for (const l of stdoutLines(file)) evs.push(...q.feed(l).events)
+  assert.equal((evs.find((e) => e.type === 'turn.done') as any).status, 'error')
+})

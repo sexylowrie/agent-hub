@@ -11,10 +11,10 @@ export function stdoutLines(rel: string): any[] {
     .map((l) => JSON.parse(l.startsWith('<< ') ? l.slice(3) : l))
 }
 
-/** 我方写入 stdin 的行 */
+/** 我方写入 stdin 的行（`>> [SIGINT]` 这类动作标记除外） */
 export function stdinLines(rel: string): any[] {
   return readFileSync(join(ROOT, rel), 'utf8')
     .split('\n')
-    .filter((l) => l.startsWith('>> '))
+    .filter((l) => l.startsWith('>> ') && !l.startsWith('>> ['))
     .map((l) => JSON.parse(l.slice(3)))
 }

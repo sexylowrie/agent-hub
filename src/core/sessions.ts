@@ -243,7 +243,7 @@ export class Hub {
         }
       }
       this.inFlight.delete(sessionId)
-      this.store.finishTurn(turnId, finalStatus === 'success' ? 'done' : 'failed')
+      this.store.finishTurn(turnId, finalStatus === 'success' || finalStatus === 'interrupted' ? 'done' : 'failed')
       const s = this.store.getSession(sessionId)
       if (s) {
         if (preview) s.lastMessagePreview = preview.slice(0, PREVIEW_LEN)
