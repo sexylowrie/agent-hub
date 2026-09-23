@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code / Codex / Cursor 远程控制原理与统一管理方案</title>
+<style>
+  :root{--fg:#1f2328;--muted:#59636e;--line:#d0d7de;--bg:#fff;--soft:#f6f8fa;
+        --claude:#c96442;--codex:#10a37f;--cursor:#3b6cf6;--hub:#7c3aed;--feishu:#3370ff;--warn:#b45309}
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.7 -apple-system,"PingFang SC","Helvetica Neue",Arial,sans-serif;color:var(--fg);background:var(--bg)}
+  main{max-width:960px;margin:0 auto;padding:48px 32px 80px}
+  h1{font-size:28px;line-height:1.3;margin:0 0 8px}
+  h2{font-size:21px;margin:48px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:17px;margin:28px 0 8px}
+  p{margin:8px 0}
+  .meta{color:var(--muted);font-size:13px;margin-bottom:24px}
+  .lead{background:var(--soft);border-left:4px solid var(--hub);padding:14px 18px;border-radius:6px;margin:20px 0}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--soft);font-weight:600}
+  td:first-child{white-space:nowrap;font-weight:600}
+  code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+  pre{background:#0d1117;color:#e6edf3;padding:14px 16px;border-radius:8px;overflow:auto;font-size:13px;line-height:1.55}
+  pre code{background:none;padding:0;color:inherit}
+  figure{margin:20px 0;padding:16px;border:1px solid var(--line);border-radius:10px;background:#fff}
+  figure svg{width:100%;height:auto;display:block}
+  figcaption{color:var(--muted);font-size:13px;margin-top:10px;text-align:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+  .card{border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:#fff}
+  .card h4{margin:0 0 6px;font-size:15px}
+  .tag{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;color:#fff;margin-right:6px;vertical-align:middle}
+  .t-claude{background:var(--claude)}.t-codex{background:var(--codex)}.t-cursor{background:var(--cursor)}.t-hub{background:var(--hub)}
+  .warn{border-left:4px solid var(--warn);background:#fffbeb;padding:12px 16px;border-radius:6px}
+  ul,ol{padding-left:22px}li{margin:4px 0}
+  .src{font-size:13px;color:var(--muted)}
+  .src a{color:#0969da;text-decoration:none;word-break:break-all}
+  /* svg shared */
+  .box{fill:#fff;stroke:#8c959f;stroke-width:1.4;rx:8}
+  .box.claude{stroke:var(--claude);fill:#fdf3ef}.box.codex{stroke:var(--codex);fill:#ecf9f4}
+  .box.cursor{stroke:var(--cursor);fill:#eef2fe}.box.hub{stroke:var(--hub);fill:#f3eefe}
+  .box.cloud{stroke:#8c959f;fill:#f6f8fa;stroke-dasharray:5 4}.box.feishu{stroke:var(--feishu);fill:#ebf1ff}
+  .lbl{font:13px -apple-system,"PingFang SC",sans-serif;fill:#1f2328;text-anchor:middle}
+  .lbl.s{font-size:11.5px;fill:#59636e}.lbl.b{font-weight:600}
+  .arr{stroke:#57606a;stroke-width:1.6;fill:none;marker-end:url(#ah)}
+  .arr.out{stroke:#1a7f37}.arr.in{stroke:#cf222e}.arr.dash{stroke-dasharray:5 4}
+  .zone{fill:none;stroke:#d0d7de;stroke-width:1;stroke-dasharray:3 4;rx:12}
+  .zlbl{font:12px -apple-system,"PingFang SC",sans-serif;fill:#8c959f}
+</style>
+</head>
+<body>
+<main>
+<h1>Claude Code / Codex / Cursor 远程控制原理与统一管理方案</h1>
+<p class="meta">整理日期 2026-09-23 · 基于官方文档、开源仓库与本机实测 · 本机环境 macOS，Claude Code 2.1.280，ChatGPT App 内置 Codex 0.155，Cursor CLI 2026.03.25</p>
+
+<div class="lead">
+<b>结论。</b>三家的官方 Remote Control 都是同一种形态：本机进程主动出站连接厂商中继，手机端只能用厂商自家 App 接入，中继不对第三方开放。所以走官方路线必须装三个 App。<br>
+但三家在本机都留了可编程接口，且已在这台 Mac 上验证可用。把这一层统一封装成一个自建 Hub，用飞书机器人当唯一手机入口，就能一个入口管三家。
+</div>
+
+<h2>一、三家 Remote Control 是怎么实现的</h2>
+
+<h3>1. 共同骨架</h3>
+<p>三家都没有让本机开端口，也没有做 NAT 穿透。做法是本机进程主动出站连接厂商中继，手机端也出站连接同一个中继，中继在两条连接之间转发。手机端只发指令和审批结果，代码、文件、凭据留在本机。</p>
+
+<figure>
+<svg viewBox="0 0 900 260" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#57606a"/></marker></defs>
+<rect class="zone" x="20" y="30" width="240" height="200"/><text class="zlbl" x="32" y="50">你的 Mac（NAT 之后，不开端口）</text>
+<rect class="zone" x="330" y="30" width="240" height="200"/><text class="zlbl" x="342" y="50">厂商云端</text>
+<rect class="zone" x="640" y="30" width="240" height="200"/><text class="zlbl" x="652" y="50">手机 / 网页</text>
+<rect class="box" x="50" y="95" width="180" height="80"/>
+<text class="lbl b" x="140" y="128">本机 Agent 进程</text><text class="lbl s" x="140" y="150">推理调用 · 工具执行 · 文件</text>
+<rect class="box cloud" x="360" y="95" width="180" height="80"/>
+<text class="lbl b" x="450" y="128">Relay 中继</text><text class="lbl s" x="450" y="150">注册 · 会话路由 · 鉴权</text>
+<rect class="box" x="670" y="95" width="180" height="80"/>
+<text class="lbl b" x="760" y="128">厂商自家 App</text><text class="lbl s" x="760" y="150">看流式输出 · 发消息 · 批权限</text>
+<path class="arr out" d="M230,120 L358,120"/><text class="lbl s" x="294" y="112">出站长连接</text>
+<path class="arr dash" d="M358,150 L232,150"/><text class="lbl s" x="294" y="170">指令 / 审批回传</text>
+<path class="arr out" d="M670,120 L542,120"/><text class="lbl s" x="606" y="112">出站 HTTPS</text>
+<path class="arr dash" d="M542,150 L668,150"/><text class="lbl s" x="606" y="170">事件流</text>
+</svg>
+<figcaption>图 1 · 三家共用的骨架：两端都出站连中继，本机不暴露任何端口</figcaption>
+</figure>
+
+<h3>2. 三家的差异</h3>
+<table>
+<tr><th></th><th><span class="tag t-claude">Claude Code</span></th><th><span class="tag t-codex">Codex（ChatGPT App）</span></th><th><span class="tag t-cursor">Cursor</span></th></tr>
+<tr><td>推理在哪</td><td>本机 CLI 直接调 Anthropic API</td><td>本机 app-server 调 OpenAI API</td><td><b>云端</b>跑 agent loop，本机只是执行工具的 worker</td></tr>
+<tr><td>本机 → 云</td><td>出站注册 environment，长轮询拉工作；会话通道用 WebSocket，HTTP POST 兜底</td><td>本机 <code>codex app-server</code>（JSON-RPC 2.0）出站连 OpenAI relay 的 rendezvous WebSocket</td><td>本机 worker 出站 HTTPS 长连接到 api2.cursor.sh</td></tr>
+<tr><td>手机 → 本机</td><td>claude.ai / Claude App 经 Anthropic 后端转发</td><td>ChatGPT App 经 relay 下发 <code>turn/start</code> 与审批响应</td><td>Cursor App 到云端 loop，loop 再把工具调用下发给 worker</td></tr>
+<tr><td>配对与鉴权</td><td>同一 claude.ai 账号；多把短时凭据独立过期；<b>只支持订阅登录</b>，API key 不行</td><td>同账号同 workspace；每台手机与每台主机扫码或短时手动配对码</td><td>同账号 + 桌面端开关；付费计划、Privacy Mode</td></tr>
+<tr><td>权限审批</td><td>转发到 App；App 端不能选 bypass</td><td>沙箱与审批策略在远控下依旧生效</td><td>由云端 loop 决定，本机执行</td></tr>
+<tr><td>转录存哪</td><td>Anthropic 服务端，TLS 传输，<b>不是</b>端到端加密</td><td>官方未公开加密细节</td><td>Cursor 云端</td></tr>
+<tr><td>本机要求</td><td>进程常驻；断网自动重连</td><td>主机保持唤醒、在线、已登录</td><td>机器唤醒在线；工作区需 git remote</td></tr>
+<tr><td>多会话</td><td>server 模式默认 32 并发，可按 worktree 隔离</td><td>手机可跨所有 thread</td><td>云端不限并发，手机同时追踪 8 个</td></tr>
+</table>
+
+<figure>
+<svg viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg">
+<rect class="zone" x="20" y="20" width="270" height="260"/><text class="zlbl" x="32" y="40">Claude Code</text>
+<rect class="box claude" x="45" y="60" width="220" height="70"/><text class="lbl b" x="155" y="88">本机 claude</text><text class="lbl s" x="155" y="108">推理 + 工具都在本机</text>
+<rect class="box cloud" x="45" y="180" width="220" height="70"/><text class="lbl b" x="155" y="208">Anthropic API</text><text class="lbl s" x="155" y="228">模型推理 · relay · 存转录</text>
+<path class="arr out" d="M120,130 L120,178"/><path class="arr dash" d="M190,178 L190,132"/>
+<text class="lbl s" x="155" y="270">中继只转发，不参与决策</text>
+
+<rect class="zone" x="315" y="20" width="270" height="260"/><text class="zlbl" x="327" y="40">Codex</text>
+<rect class="box codex" x="340" y="60" width="220" height="70"/><text class="lbl b" x="450" y="88">本机 codex app-server</text><text class="lbl s" x="450" y="108">JSON-RPC · 推理 + 工具在本机</text>
+<rect class="box cloud" x="340" y="180" width="220" height="70"/><text class="lbl b" x="450" y="208">OpenAI relay</text><text class="lbl s" x="450" y="228">rendezvous WS · 配对</text>
+<path class="arr out" d="M415,130 L415,178"/><path class="arr dash" d="M485,178 L485,132"/>
+<text class="lbl s" x="450" y="270">协议层与桌面 App、IDE 插件共用</text>
+
+<rect class="zone" x="610" y="20" width="270" height="260"/><text class="zlbl" x="622" y="40">Cursor</text>
+<rect class="box cursor" x="635" y="60" width="220" height="70"/><text class="lbl b" x="745" y="88">本机 worker</text><text class="lbl s" x="745" y="108">只执行工具：shell · 文件 · 浏览器</text>
+<rect class="box cloud" x="635" y="180" width="220" height="70"/><text class="lbl b" x="745" y="208">Cursor 云端 agent loop</text><text class="lbl s" x="745" y="228">推理 · 规划 · 决定下一步</text>
+<path class="arr out" d="M710,130 L710,178"/><path class="arr dash" d="M780,178 L780,132"/>
+<text class="lbl s" x="745" y="270">大脑在云端，手脚在本机</text>
+</svg>
+<figcaption>图 2 · 关键差异：Claude 与 Codex 的推理留在本机，Cursor 把推理搬到云端</figcaption>
+</figure>
+
+<h3>3. 为什么官方路线绕不开三个 App</h3>
+<ul>
+<li>三家中继只认自家客户端，没有公开的"接管某个远控会话"的 REST 接口或 SDK。</li>
+<li>Claude 的隐藏参数 <code>--sdk-url</code> 是内部协议入口，已加 hostname 白名单；社区自建 relay 靠 patch 二进制，不可依赖。</li>
+<li>Codex 的 relay 只允许 ChatGPT 客户端配对；<code>exec-server --remote</code> 是让云端任务借用本机执行，方向相反。</li>
+<li>Cursor 的 Slack / GitHub / Linear 集成只能驱动 Cloud Agent，控制不了本机会话。</li>
+</ul>
+
+<h2>二、统一方案：自建本机 Agent Hub，飞书做唯一手机入口</h2>
+
+<p>放弃三家的中继，只保留它们在本机的可编程接口。由自己的 Hub 统一封装，手机端只用飞书。飞书机器人用长连接收事件，同样是出站连接，本机依旧不开端口。</p>
+
+<figure>
+<svg viewBox="0 0 900 420" xmlns="http://www.w3.org/2000/svg">
+<rect class="zone" x="20" y="20" width="560" height="380"/><text class="zlbl" x="32" y="40">你的 Mac（launchd 常驻，caffeinate 防休眠）</text>
+<rect class="zone" x="620" y="20" width="260" height="380"/><text class="zlbl" x="632" y="40">手机</text>
+
+<rect class="box hub" x="220" y="70" width="180" height="90"/>
+<text class="lbl b" x="310" y="100">Agent Hub</text>
+<text class="lbl s" x="310" y="120">统一事件模型 · 会话表 SQLite</text>
+<text class="lbl s" x="310" y="140">路由 · 审批分发 · 重连</text>
+
+<rect class="box claude" x="40" y="250" width="160" height="90"/>
+<text class="lbl b" x="120" y="278">Claude 适配器</text>
+<text class="lbl s" x="120" y="298">claude -p 双向 stream-json</text>
+<text class="lbl s" x="120" y="316">control_request 审批</text>
+
+<rect class="box codex" x="220" y="250" width="160" height="90"/>
+<text class="lbl b" x="300" y="278">Codex 适配器</text>
+<text class="lbl s" x="300" y="298">app-server ws://127.0.0.1</text>
+<text class="lbl s" x="300" y="316">JSON-RPC 审批请求</text>
+
+<rect class="box cursor" x="400" y="250" width="160" height="90"/>
+<text class="lbl b" x="480" y="278">Cursor 适配器</text>
+<text class="lbl s" x="480" y="298">agent -p stream-json</text>
+<text class="lbl s" x="480" y="316">每轮一进程 · worktree</text>
+
+<path class="arr" d="M270,160 L130,248"/><path class="arr" d="M310,160 L305,248"/><path class="arr" d="M350,160 L470,248"/>
+
+<rect class="box feishu" x="430" y="70" width="130" height="90"/>
+<text class="lbl b" x="495" y="100">飞书事件桥</text>
+<text class="lbl s" x="495" y="120">lark-cli event consume</text>
+<text class="lbl s" x="495" y="140">出站长连接</text>
+<path class="arr" d="M400,115 L428,115"/>
+
+<rect class="box cloud" x="640" y="70" width="220" height="60"/>
+<text class="lbl b" x="750" y="95">飞书开放平台</text><text class="lbl s" x="750" y="115">消息 · 卡片回调</text>
+<path class="arr out" d="M560,100 L638,100"/>
+
+<rect class="box feishu" x="640" y="180" width="220" height="90"/>
+<text class="lbl b" x="750" y="208">飞书 App（已在用）</text>
+<text class="lbl s" x="750" y="228">三个话题群 = 三家会话</text>
+<text class="lbl s" x="750" y="246">审批卡片：允许 / 拒绝 / 本会话允许</text>
+<path class="arr dash" d="M750,130 L750,178"/>
+
+<rect class="box" x="640" y="310" width="220" height="70"/>
+<text class="lbl b" x="750" y="338">只读 Web（第二阶段）</text>
+<text class="lbl s" x="750" y="358">Tailscale 内网 · 看 diff 与长日志</text>
+<path class="arr dash" d="M230,90 L200,90 L200,345 L638,345"/>
+</svg>
+<figcaption>图 3 · Hub 总体架构：三家在本机的接口收敛到一处，飞书是唯一手机入口</figcaption>
+</figure>
+
+<h3>1. 执行适配层（本机已验证）</h3>
+<table>
+<tr><th>产品</th><th>驱动方式</th><th>审批怎么接</th><th>续会话</th></tr>
+<tr><td><span class="tag t-claude">Claude</span></td><td><code>claude -p --input-format stream-json --output-format stream-json</code>，长驻双向流</td><td>流里出现 <code>control_request(can_use_tool)</code>，回 <code>control_response</code>；或 <code>--permission-prompt-tool</code> 指到 Hub 的 MCP 工具</td><td><code>--resume &lt;session-id&gt;</code></td></tr>
+<tr><td><span class="tag t-codex">Codex</span></td><td><code>codex app-server --listen ws://127.0.0.1:PORT</code>，JSON-RPC；<code>thread/start</code> → <code>turn/start</code>，中途 <code>turn/steer</code>、<code>turn/interrupt</code></td><td>服务端主动发 <code>item/*/requestApproval</code>，回 accept / decline / acceptForSession</td><td><code>thread/resume</code>，<code>thread/list</code></td></tr>
+<tr><td><span class="tag t-cursor">Cursor</span></td><td><code>agent -p --output-format stream-json</code>，每轮一个进程</td><td>无中途审批，<code>--sandbox enabled</code> 或 <code>--force</code> 二选一；建议在 git worktree 里跑 <code>--force</code></td><td><code>--resume &lt;chatId&gt;</code></td></tr>
+</table>
+<p>Codex 直接用 ChatGPT App 内置的那份二进制，已登录 ChatGPT 账号，先软链到 PATH：</p>
+<pre><code>ln -s "/Applications/ChatGPT.app/Contents/Resources/codex" ~/.local/bin/codex
+codex app-server generate-json-schema   # 导出协议 schema，适配器按 schema 生成类型</code></pre>
+
+<h3>2. 统一事件模型</h3>
+<p>三家事件归一到六种，落 SQLite，每条带厂商原始 session id，随时能回到原生 CLI 继续。</p>
+<div class="grid">
+<div class="card"><h4>session.created</h4>厂商、工作目录、原始 id、飞书话题 id</div>
+<div class="card"><h4>user.message</h4>来自飞书的文本，含 steer 中途插话</div>
+<div class="card"><h4>assistant.delta</h4>流式文本，合并后按段落刷卡片</div>
+<div class="card"><h4>tool.call</h4>开始 / 结束、命令、改动文件列表</div>
+<div class="card"><h4>approval.request</h4>类型、风险摘要、超时；对应卡片按钮</div>
+<div class="card"><h4>turn.done</h4>结果摘要、耗时、diff 统计、下一步建议</div>
+</div>
+
+<h3>3. 审批闭环</h3>
+<figure>
+<svg viewBox="0 0 900 330" xmlns="http://www.w3.org/2000/svg">
+<g class="lbl b">
+<text x="110" y="34">Agent（三家之一）</text><text x="340" y="34">Hub</text><text x="570" y="34">飞书</text><text x="800" y="34">你</text>
+</g>
+<g stroke="#d0d7de" stroke-width="1.2"><line x1="110" y1="45" x2="110" y2="310"/><line x1="340" y1="45" x2="340" y2="310"/><line x1="570" y1="45" x2="570" y2="310"/><line x1="800" y1="45" x2="800" y2="310"/></g>
+<path class="arr" d="M110,80 L338,80"/><text class="lbl s" x="225" y="72">要执行 rm -rf build/，请求审批</text>
+<path class="arr" d="M340,120 L568,120"/><text class="lbl s" x="455" y="112">发交互卡片：命令 · 目录 · 风险</text>
+<path class="arr" d="M570,160 L798,160"/><text class="lbl s" x="685" y="152">推送通知</text>
+<path class="arr in" d="M800,200 L572,200"/><text class="lbl s" x="685" y="192">点「允许」</text>
+<path class="arr in" d="M570,240 L342,240"/><text class="lbl s" x="455" y="232">卡片回调 card.action.trigger</text>
+<path class="arr in" d="M340,280 L112,280"/><text class="lbl s" x="225" y="272">control_response / accept</text>
+<text class="lbl s" x="450" y="318">5 分钟无人响应按厂商默认策略处理，卡片置灰并留痕</text>
+</svg>
+<figcaption>图 4 · 一次权限审批在四方之间的流转</figcaption>
+</figure>
+
+<h3>4. 飞书侧的使用约定</h3>
+<ul>
+<li>一个机器人，三个话题群分别对应三家，也可以在一个群里用前缀路由：<code>/cc</code> Claude、<code>/cx</code> Codex、<code>/cu</code> Cursor。</li>
+<li>首条消息带工作目录，如 <code>/cc ~/AiProject/my-service 把订单模块补上单测</code>；后续消息自动接到该话题的会话。</li>
+<li>流式输出按段落合并刷卡片，避免刷屏；回合结束发摘要卡片，带"看 diff"链接跳到只读 Web。</li>
+<li>斜杠命令白名单：<code>/stop</code> 中断、<code>/model</code>、<code>/effort</code>、<code>/new</code> 开新会话、<code>/ls</code> 列会话。</li>
+</ul>
+
+<h3>5. 分阶段落地</h3>
+<table>
+<tr><th>阶段</th><th>内容</th><th>验收</th></tr>
+<tr><td>第一阶段</td><td>Claude + Codex 适配器、飞书收发、审批卡片、SQLite 会话表、launchd 常驻</td><td>手机上发任务、批权限、收结果，Mac 合盖接电仍在跑</td></tr>
+<tr><td>第二阶段</td><td>Cursor 适配器（worktree 隔离）、只读 Web 看 diff、Tailscale</td><td>三家都能从飞书驱动，diff 手机可读</td></tr>
+<tr><td>第三阶段</td><td>会话恢复与重连、多机（第二台 Mac 也跑 Hub）、用量统计</td><td>断网恢复不丢上下文</td></tr>
+</table>
+
+
+<h2>三、本机实测结论（2026-09-23 晚）</h2>
+<p>围绕三个核心诉求逐家验证：<b>展示会话列表</b>、<b>看进度</b>、<b>桌面端空闲后在手机上接着聊</b>。全部不依赖实时接管 GUI 进程。</p>
+<table>
+<tr><th>桌面端</th><th>会话存哪</th><th>会话列表</th><th>看进度</th><th>手机续聊</th><th>限制</th></tr>
+<tr><td><span class="tag t-claude">Claude Desktop · Code 模式</span></td><td><code>~/.claude/projects</code>，入口标记 claude-desktop，与 CLI 同格式</td><td>可以</td><td>可以，tail jsonl</td><td><b>已实测</b>：<code>claude -p --resume &lt;id&gt;</code> 续接成功</td><td>Chat 模式的会话在云端，本机无文件；Cowork 跑在虚拟机镜像里，不纳入</td></tr>
+<tr><td><span class="tag t-codex">Codex · ChatGPT App</span></td><td><code>~/.codex/state_5.sqlite</code> 的 threads 表 + 会话 jsonl</td><td>可以，50 条含标题/目录/归档标记</td><td>可以，tail jsonl（未实测）</td><td><b>已实测</b>：自起 app-server 用 <code>thread/resume</code> 续接 GUI 线程；归档的先 unarchive</td><td>GUI 的 app-server 是 stdio 独占，运行中不能挂第二个客户端；纯聊天线程无本地文件</td></tr>
+<tr><td><span class="tag t-cursor">Cursor IDE</span></td><td>globalStorage 的 <code>state.vscdb</code>：composerData + bubbleId</td><td>可以，1631 条</td><td>可以，status 与 generatingBubbleIds</td><td><b>已实测</b>：<code>agent -p --resume &lt;composerId&gt;</code> 续接成功，上下文完整</td><td>CLI 续聊写到 <code>~/.cursor/chats</code>，IDE 窗口不显示手机上聊的内容；无需 CDP</td></tr>
+</table>
+<p>Desktop 端拉起 Claude Code 用的正是 <code>--input-format stream-json --output-format stream-json --permission-prompt-tool stdio</code>，与 Hub 计划采用的驱动方式一致，说明这条协议是官方自己在用的稳定路径。</p>
+<div class="warn"><b>放弃的路线。</b>实时接管 GUI 正在跑的会话，三家都没有正规缝隙：Claude Desktop 与 Codex 的子进程都是 stdio 独占，Cursor 只能靠 Chrome DevTools 协议抓 DOM。诉求里不要求同步，所以 Hub 只做"读存储 + 空闲后续接"。</div>
+
+<h2>四、取舍与风险</h2>
+<div class="warn">
+<ul style="margin:0">
+<li><b>放弃原生体验。</b>Claude App 的移动端 diff 视图、Cursor 云端并行多 agent 与远程桌面，这些 Hub 不提供。</li>
+<li><b>Cursor 这路变成"远程驱动本机 CLI"。</b>与官方云端 loop 不同，本机断网就停；且 <code>agent -p</code> 没有中途审批，必须 sandbox 或 <code>--force</code> 加 worktree 兜底。</li>
+<li><b>Claude 长驻流模式下</b>仅终端 UI 的斜杠命令用不了，模型与 effort 走参数；bypass 模式等于把审批交给沙箱。</li>
+<li><b>Codex app-server 官方标注 experimental</b>，协议可能变化，靠导出的 schema 做兼容层。<code>codex mcp-server</code> 已被官方移除，不要走那条路。</li>
+<li><b>安全边界。</b>飞书机器人必须限制发送者 open_id 白名单；只读 Web 只走 Tailscale，不上公网。</li>
+</ul>
+</div>
+
+<h3>更省事的替代</h3>
+<p>开源项目 Happy Coder 宣称一个 App 同时接管 Claude Code 与 Codex 且端到端加密。本轮未验证它 2026 年的兼容状态，也不支持 Cursor。如果它两家可用，只需自己补 Cursor 一路，代价是多装一个 App。</p>
+
+<h2>五、主要来源</h2>
+<p class="src">
+Claude Code Remote Control 官方文档 <a href="https://code.claude.com/docs/en/remote-control">code.claude.com/docs/en/remote-control</a> ·
+Headless 与 CLI 参考 <a href="https://code.claude.com/docs/en/headless">code.claude.com/docs/en/headless</a> ·
+Channels <a href="https://code.claude.com/docs/en/channels">code.claude.com/docs/en/channels</a> ·
+社区逆向 <a href="https://www.frr.dev/posts/claude-code-remote-control-hidden-api/">frr.dev</a>、<a href="https://www.originhq.com/research/reversing-remote-control">originhq.com</a><br>
+Codex Remote connections <a href="https://learn.chatgpt.com/docs/remote-connections">learn.chatgpt.com/docs/remote-connections</a> ·
+app-server 协议 <a href="https://learn.chatgpt.com/docs/app-server">learn.chatgpt.com/docs/app-server</a> ·
+非交互模式 <a href="https://learn.chatgpt.com/docs/non-interactive-mode">learn.chatgpt.com/docs/non-interactive-mode</a> ·
+rendezvous 实现 <a href="https://github.com/openai/codex/pull/19575">openai/codex #19575</a><br>
+Cursor Remote Control 与手机端 <a href="https://cursor.com/docs/cloud-agent/mobile">cursor.com/docs/cloud-agent/mobile</a> ·
+运行时选择 <a href="https://cursor.com/docs/cloud-agent/choose-runtime">choose-runtime</a> ·
+My Machines <a href="https://cursor.com/docs/cloud-agent/self-hosted/my-machines">self-hosted/my-machines</a> ·
+CLI headless <a href="https://cursor.com/docs/cli/headless">cursor.com/docs/cli/headless</a> ·
+Cloud Agents API <a href="https://cursor.com/docs/cloud-agent/api/endpoints">api/endpoints</a>
+</p>
+</main>
+</body>
+</html>

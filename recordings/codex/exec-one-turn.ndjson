@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"01a0ce9d-e87a-7d20-ae93-ff25b7a0cbf2"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc 'echo hub-probe'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc 'echo hub-probe'","aggregated_output":"hub-probe\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"收到"}}
+{"type":"turn.completed","usage":{"input_tokens":38032,"cached_input_tokens":29440,"cache_write_input_tokens":0,"output_tokens":40,"reasoning_output_tokens":0}}

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Hub 技术方案</title>
+<style>
+  :root{--fg:#1f2328;--muted:#59636e;--line:#d0d7de;--soft:#f6f8fa;
+        --claude:#c96442;--codex:#10a37f;--cursor:#3b6cf6;--hub:#7c3aed;--feishu:#3370ff;--warn:#b45309;--ok:#1a7f37}
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.7 -apple-system,"PingFang SC","Helvetica Neue",Arial,sans-serif;color:var(--fg);background:#fff}
+  main{max-width:960px;margin:0 auto;padding:48px 32px 80px}
+  h1{font-size:28px;line-height:1.3;margin:0 0 8px}
+  h2{font-size:21px;margin:48px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:17px;margin:28px 0 8px}
+  p{margin:8px 0}
+  .meta{color:var(--muted);font-size:13px;margin-bottom:24px}
+  .lead{background:var(--soft);border-left:4px solid var(--hub);padding:14px 18px;border-radius:6px;margin:20px 0}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--soft);font-weight:600}
+  td:first-child{white-space:nowrap;font-weight:600}
+  td:last-child .ok,td:last-child .bad{white-space:nowrap}
+  table.sel td:last-child{white-space:nowrap}
+  code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+  pre{background:#0d1117;color:#e6edf3;padding:14px 16px;border-radius:8px;overflow:auto;font-size:13px;line-height:1.55}
+  pre code{background:none;padding:0;color:inherit}
+  figure{margin:20px 0;padding:16px;border:1px solid var(--line);border-radius:10px}
+  figure svg{width:100%;height:auto;display:block}
+  figcaption{color:var(--muted);font-size:13px;margin-top:10px;text-align:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+  .card{border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .card h4{margin:0 0 6px;font-size:15px}
+  .tag{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;color:#fff;margin-right:6px;vertical-align:middle}
+  .t-claude{background:var(--claude)}.t-codex{background:var(--codex)}.t-cursor{background:var(--cursor)}.t-hub{background:var(--hub)}
+  .warn{border-left:4px solid var(--warn);background:#fffbeb;padding:12px 16px;border-radius:6px}
+  .ok{color:var(--ok);font-weight:600}.bad{color:#cf222e;font-weight:600}
+  ul,ol{padding-left:22px}li{margin:4px 0}
+  .box{fill:#fff;stroke:#8c959f;stroke-width:1.4;rx:8}
+  .box.claude{stroke:var(--claude);fill:#fdf3ef}.box.codex{stroke:var(--codex);fill:#ecf9f4}
+  .box.cursor{stroke:var(--cursor);fill:#eef2fe}.box.hub{stroke:var(--hub);fill:#f3eefe}
+  .box.store{stroke:#8c959f;fill:#f6f8fa}.box.feishu{stroke:var(--feishu);fill:#ebf1ff}.box.pwa{stroke:#1a7f37;fill:#ecf7ee}
+  .lbl{font:13px -apple-system,"PingFang SC",sans-serif;fill:#1f2328;text-anchor:middle}
+  .lbl.s{font-size:11.5px;fill:#59636e}.lbl.b{font-weight:600}.lbl.l{text-anchor:start}
+  .arr{stroke:#57606a;stroke-width:1.6;fill:none;marker-end:url(#ah)}
+  .arr.dash{stroke-dasharray:5 4}.arr.g{stroke:#1a7f37}.arr.r{stroke:#cf222e}
+  .zone{fill:none;stroke:#d0d7de;stroke-width:1;stroke-dasharray:3 4;rx:12}
+  .zlbl{font:12px -apple-system,"PingFang SC",sans-serif;fill:#8c959f}
+</style>
+</head>
+<body>
+<main>
+<h1>Agent Hub 技术方案</h1>
+<p class="meta">2026-09-23 · 目标：一个入口管 Claude Code / Codex / Cursor 三家本机会话 · 诉求：会话列表、看进度、桌面端空闲后手机续聊 · 前置调研见《三家Agent统一远程管理方案》</p>
+
+<div class="lead">
+<b>选型结论：TypeScript + Node 24，单进程，零原生依赖，手机端先做 PWA。</b><br>
+三家 CLI 本身都是 Node 程序，官方 SDK 与协议类型都是 TypeScript 优先；Hub 的核心工作是处理 NDJSON 流和 WebSocket，这是 Node 的主场；同一门语言同时覆盖后端、Web 端和后续的手机端，迭代不用切上下文。Node 24 内置 SQLite，不需要编译原生模块。
+</div>
+
+<h2>一、语言选型</h2>
+<table class="sel">
+<tr><th>候选</th><th>优势</th><th>劣势</th><th>结论</th></tr>
+<tr><td>TypeScript / Node 24</td><td>三家 CLI 是 Node 程序，Claude Agent SDK、Codex SDK、Codex app-server 类型绑定全是 TS；流式 JSON 与 WebSocket 生态最成熟；前后端同语言，PWA 可直接复用类型；内置 SQLite 与 WebSocket 客户端</td><td>类型体操容易过度；需要克制依赖数量</td><td class="ok">采用</td></tr>
+<tr><td>Python</td><td>有现成经验；脚本化快；Codex 有 Python SDK</td><td>Web/PWA 要另起一门语言；异步子进程流处理不如 Node 顺手；Claude SDK 的 TS 版更新更快</td><td>备选</td></tr>
+<tr><td>Java / Kotlin</td><td>你的主力语言；工程规范成熟</td><td>启动重、单人小项目迭代慢；处理 NDJSON 子进程流样板代码多；没有三家 SDK</td><td class="bad">不采用</td></tr>
+<tr><td>Go</td><td>单二进制分发、常驻进程稳</td><td>没有三家 SDK，协议类型要手写；前端仍需另一门语言；目前不需要分发给别人</td><td class="bad">不采用</td></tr>
+</table>
+
+<h3>技术栈与依赖清单</h3>
+<table>
+<tr><th>层</th><th>选择</th><th>为什么</th></tr>
+<tr><td>运行时</td><td>Node 24（本机 v24.13.0 已装）+ <code>tsx</code> 直接运行 TS</td><td>开发期无构建步骤，改完即跑</td></tr>
+<tr><td>HTTP / WS</td><td><code>hono</code> + <code>ws</code></td><td>轻，路由与中间件够用；ws 是事实标准</td></tr>
+<tr><td>存储</td><td><code>node:sqlite</code>（内置，已验证可用）</td><td>零原生依赖，一个文件，备份就是复制</td></tr>
+<tr><td>校验</td><td><code>zod</code></td><td>统一事件与命令的运行时校验，防止三家协议变动静默出错</td></tr>
+<tr><td>Codex 协议类型</td><td><code>codex app-server generate-ts</code> 生成</td><td>官方导出，协议升级重新生成即可</td></tr>
+<tr><td>Web / PWA</td><td>Vite + Preact，Service Worker 做安装与推送</td><td>体积小，iOS 与 Android 都能"添加到主屏幕"，免上架</td></tr>
+<tr><td>飞书桥（可选）</td><td>spawn 本机 <code>lark-cli event consume</code>，读 NDJSON</td><td>复用已登录的 lark-cli，不再接一套 SDK</td></tr>
+<tr><td>测试</td><td><code>node:test</code> + 录制的三家真实事件流做回放</td><td>不引入测试框架；协议回放比 mock 可靠</td></tr>
+</table>
+<p>依赖总数控制在 6 个以内。任何新增依赖需要一句话理由写进 README。</p>
+
+<h2>二、总体架构</h2>
+<figure>
+<svg viewBox="0 0 900 520" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#57606a"/></marker></defs>
+<rect class="zone" x="20" y="20" width="600" height="480"/><text class="zlbl" x="32" y="40">Mac · agent-hub 单进程（launchd 常驻）</text>
+<rect class="zone" x="650" y="20" width="230" height="480"/><text class="zlbl" x="662" y="40">客户端</text>
+
+<rect class="box hub" x="240" y="60" width="180" height="110"/>
+<text class="lbl b" x="330" y="88">Core</text>
+<text class="lbl s" x="330" y="108">统一事件总线</text>
+<text class="lbl s" x="330" y="126">会话状态机 · 审批路由</text>
+<text class="lbl s" x="330" y="144">SQLite 持久化</text>
+
+<rect class="box store" x="40" y="60" width="170" height="110"/>
+<text class="lbl b" x="125" y="88">Session Scanner</text>
+<text class="lbl s" x="125" y="108">监听三家本地存储</text>
+<text class="lbl s" x="125" y="126">列表 · 进度 · 空闲判定</text>
+<text class="lbl s" x="125" y="144">fs.watch + 轮询兜底</text>
+<path class="arr" d="M210,115 L238,115"/>
+
+<rect class="box" x="450" y="60" width="150" height="110"/>
+<text class="lbl b" x="525" y="88">Gateway</text>
+<text class="lbl s" x="525" y="108">WebSocket + REST</text>
+<text class="lbl s" x="525" y="126">设备配对 · token 校验</text>
+<text class="lbl s" x="525" y="144">事件订阅 · 命令下发</text>
+<path class="arr" d="M420,115 L448,115"/>
+
+<text class="lbl b l" x="40" y="215">Adapters（统一接口 AgentAdapter）</text>
+<rect class="box claude" x="40" y="230" width="170" height="90"/>
+<text class="lbl b" x="125" y="256">Claude</text>
+<text class="lbl s" x="125" y="276">claude -p stream-json 双向</text>
+<text class="lbl s" x="125" y="294">审批：control_request</text>
+<rect class="box codex" x="235" y="230" width="170" height="90"/>
+<text class="lbl b" x="320" y="256">Codex</text>
+<text class="lbl s" x="320" y="276">app-server JSON-RPC</text>
+<text class="lbl s" x="320" y="294">审批：requestApproval</text>
+<rect class="box cursor" x="430" y="230" width="170" height="90"/>
+<text class="lbl b" x="515" y="256">Cursor</text>
+<text class="lbl s" x="515" y="276">agent -p stream-json</text>
+<text class="lbl s" x="515" y="294">审批：无，sandbox 兜底</text>
+<path class="arr" d="M125,230 L125,200 L300,200 L300,172"/>
+<path class="arr" d="M320,230 L320,172"/>
+<path class="arr" d="M515,230 L515,200 L360,200 L360,172"/>
+
+<text class="lbl b l" x="40" y="365">三家本地存储（只读）</text>
+<rect class="box store" x="40" y="380" width="170" height="90"/>
+<text class="lbl s" x="125" y="408">~/.claude/projects/*.jsonl</text>
+<text class="lbl s" x="125" y="428">entrypoint: cli / claude-desktop</text>
+<text class="lbl s" x="125" y="448">tail 即进度</text>
+<rect class="box store" x="235" y="380" width="170" height="90"/>
+<text class="lbl s" x="320" y="408">~/.codex/state_5.sqlite</text>
+<text class="lbl s" x="320" y="428">threads 表 + sessions/*.jsonl</text>
+<text class="lbl s" x="320" y="448">archived 需 unarchive</text>
+<rect class="box store" x="430" y="380" width="170" height="90"/>
+<text class="lbl s" x="515" y="408">Cursor globalStorage/state.vscdb</text>
+<text class="lbl s" x="515" y="428">composerData + bubbleId</text>
+<text class="lbl s" x="515" y="448">generatingBubbleIds 即进度</text>
+<path class="arr dash" d="M40,425 L30,425 L30,115 L38,115"/>
+
+<rect class="box pwa" x="670" y="70" width="190" height="90"/>
+<text class="lbl b" x="765" y="98">PWA（第一优先）</text>
+<text class="lbl s" x="765" y="118">手机添加到主屏幕</text>
+<text class="lbl s" x="765" y="136">Web Push 推审批</text>
+<path class="arr g" d="M600,100 L668,100"/>
+<text class="lbl s" x="634" y="92">Tailscale</text>
+
+<rect class="box feishu" x="670" y="200" width="190" height="80"/>
+<text class="lbl b" x="765" y="228">飞书桥（可选）</text>
+<text class="lbl s" x="765" y="248">lark-cli 长连接</text>
+<text class="lbl s" x="765" y="266">卡片审批</text>
+<path class="arr" d="M600,140 L640,140 L640,240 L668,240"/>
+
+<rect class="box" x="670" y="320" width="190" height="80"/>
+<text class="lbl b" x="765" y="348">自研 App（以后）</text>
+<text class="lbl s" x="765" y="368">同一 WS 协议</text>
+<text class="lbl s" x="765" y="386">配对码换设备 token</text>
+<path class="arr dash" d="M640,240 L640,360 L668,360"/>
+</svg>
+<figcaption>图 1 · 单进程四层：Scanner 读存储、Adapters 驱动 CLI、Core 归一、Gateway 对外；客户端都走同一 WS 协议</figcaption>
+</figure>
+
+<h3>关键设计决定</h3>
+<ul>
+<li><b>读与写分离。</b>会话列表和进度靠 Scanner 只读三家存储，不起任何 CLI 进程；只有用户从手机发消息时，Adapter 才拉起一个续接进程。桌面端在工作时 Hub 完全不干扰它。</li>
+<li><b>空闲判定由 Scanner 负责。</b>Claude 看 jsonl 最后一条是否为 result 且无新写入；Codex 看 GUI 子进程是否有活跃 turn，简化为 jsonl 静默超过阈值；Cursor 看 generatingBubbleIds 是否为空。非空闲时手机端"续聊"按钮置灰，避免两个进程同时写一个会话。</li>
+<li><b>Adapter 一次一轮。</b>手机发一句，Adapter 起进程、跑完一轮、退出。不维持长驻子进程，重连、崩溃恢复都简化为"下一轮重新 resume"。Claude 和 Cursor 天然如此；Codex 用 app-server 时也在 turn 结束后关闭。</li>
+<li><b>事件先落库再广播。</b>客户端断线重连按序号补拉，手机弱网不丢消息。</li>
+</ul>
+
+<h2>三、模块与目录</h2>
+<pre><code>agent-hub/
+├── src/
+│   ├── main.ts                # 启动：加载配置 → 起 Scanner/Gateway → 注册 Adapters
+│   ├── core/
+│   │   ├── events.ts          # 统一事件类型 + zod schema
+│   │   ├── bus.ts             # 进程内事件总线（EventEmitter）
+│   │   ├── store.ts           # node:sqlite 封装：sessions / events / devices / approvals
+│   │   └── sessions.ts        # 会话状态机：idle / running / awaiting_approval / error
+│   ├── scanner/
+│   │   ├── claude.ts          # 扫 ~/.claude/projects，解析 jsonl 尾部
+│   │   ├── codex.ts           # 读 state_5.sqlite threads + jsonl
+│   │   ├── cursor.ts          # 读 state.vscdb composerData / bubbleId（只读模式打开）
+│   │   └── watcher.ts         # fs.watch + 定时全量对账
+│   ├── adapters/
+│   │   ├── types.ts           # AgentAdapter 接口
+│   │   ├── claude.ts          # spawn claude -p --resume ... stream-json 双向
+│   │   ├── codex.ts           # spawn codex app-server stdio，JSON-RPC 客户端
+│   │   └── cursor.ts          # spawn agent -p --resume ... stream-json
+│   ├── gateway/
+│   │   ├── server.ts          # hono + ws
+│   │   ├── auth.ts            # 配对码 → 设备 token；token 校验；吊销
+│   │   └── protocol.ts        # 客户端 ↔ Hub 的消息定义
+│   └── bridges/
+│       └── feishu.ts          # 可选：lark-cli event consume 收发、卡片回调
+├── web/                       # Vite + Preact PWA
+├── recordings/                # 三家真实事件流录制，用于回放测试
+├── scripts/
+│   ├── gen-codex-types.sh     # codex app-server generate-ts → src/adapters/codex.types.ts
+│   └── install-launchd.sh     # 写 ~/Library/LaunchAgents/com.agenthub.hub.plist
+└── hub.config.json            # 目录白名单、端口、三家二进制路径</code></pre>
+
+<h2>四、数据模型</h2>
+<table>
+<tr><th>表</th><th>关键字段</th><th>说明</th></tr>
+<tr><td>sessions</td><td>id, vendor, vendor_session_id, cwd, title, origin(desktop/cli/hub), state, last_event_seq, updated_at, resumable</td><td>三家会话的统一视图。origin 记录是谁建的；resumable 为 false 时列表灰显（如 Codex 无本地文件的线程）</td></tr>
+<tr><td>events</td><td>seq(自增), session_id, type, payload(json), ts</td><td>统一事件流。seq 全局单调，客户端按 seq 补拉</td></tr>
+<tr><td>approvals</td><td>id, session_id, kind, summary, payload, status(pending/allowed/denied/expired), decided_by, expires_at</td><td>待审批项。expires_at 到期按各家默认策略处理</td></tr>
+<tr><td>devices</td><td>id, name, token_hash, paired_at, last_seen, revoked</td><td>配对过的客户端。token 只存哈希</td></tr>
+<tr><td>pairing_codes</td><td>code, expires_at, used</td><td>一次性配对码，有效期 5 分钟</td></tr>
+</table>
+
+<h3>统一事件类型</h3>
+<pre><code>type HubEvent =
+  | { type: 'session.upsert';   session: SessionView }             // Scanner 发现或更新
+  | { type: 'session.state';    sessionId; state: SessionState }   // idle / running / awaiting_approval / error
+  | { type: 'turn.started';     sessionId; turnId; source: 'desktop' | 'hub' }
+  | { type: 'message.user';     sessionId; turnId; text }
+  | { type: 'message.delta';    sessionId; turnId; text }          // 流式增量，客户端合并
+  | { type: 'tool.call';        sessionId; turnId; name; input; status: 'started' | 'done'; output? }
+  | { type: 'approval.request'; sessionId; turnId; approvalId; kind; summary; expiresAt }
+  | { type: 'approval.decided'; approvalId; decision: 'allow' | 'deny' | 'allow_session'; by }
+  | { type: 'turn.done';        sessionId; turnId; result; usage?; durationMs }
+  | { type: 'error';            sessionId?; message; recoverable }</code></pre>
+
+<h2>五、Adapter 接口与三家实现要点</h2>
+<pre><code>interface AgentAdapter {
+  readonly vendor: 'claude' | 'codex' | 'cursor'
+  // 在已有会话上跑一轮；返回 AsyncIterable，产出统一事件；结束即进程退出
+  resume(session: SessionRef, input: string, opts: RunOpts): AsyncIterable&lt;HubEvent&gt;
+  // 新会话
+  start(cwd: string, input: string, opts: RunOpts): AsyncIterable&lt;HubEvent&gt;
+  // 审批回执；由 Core 在收到客户端决定后调用
+  answerApproval(approvalId: string, decision: Decision): Promise&lt;void&gt;
+  interrupt(sessionId: string): Promise&lt;void&gt;
+}</code></pre>
+<table>
+<tr><th>产品</th><th>拉起方式</th><th>事件映射</th><th>审批</th><th>已验证</th></tr>
+<tr><td><span class="tag t-claude">Claude</span></td><td><code>claude -p --resume &lt;id&gt; --input-format stream-json --output-format stream-json --include-partial-messages --permission-prompt-tool stdio</code>，与 Desktop 拉起方式一致</td><td>assistant/content_block_delta → message.delta；tool_use / tool_result → tool.call；result → turn.done</td><td>stdin 收 control_request(can_use_tool)，回 control_response</td><td class="ok">resume 成功</td></tr>
+<tr><td><span class="tag t-codex">Codex</span></td><td>spawn <code>codex app-server</code>（stdio），initialize → thread/resume → turn/start；归档先 thread/unarchive</td><td>item/* 通知 → message.delta / tool.call；turn/completed → turn.done</td><td>服务端请求 item/*/requestApproval，回 accept / decline / acceptForSession</td><td class="ok">thread/list、resume 成功</td></tr>
+<tr><td><span class="tag t-cursor">Cursor</span></td><td><code>agent -p --resume &lt;composerId&gt; --output-format stream-json</code></td><td>assistant → message.delta；tool_call started/completed → tool.call；result → turn.done</td><td>无中途审批。默认 <code>--sandbox enabled</code>；用户在手机上显式选择"放行"才加 <code>--force</code></td><td class="ok">resume 成功，上下文完整</td></tr>
+</table>
+<div class="warn"><b>Cursor 的已知偏差。</b>CLI 续聊的内容写在 <code>~/.cursor/chats</code>，IDE 数据库不回写。Scanner 对 Cursor 要同时读两处并按 composerId 合并，手机上看到的是完整对话，IDE 窗口里看不到手机那几句。</div>
+
+<h2>六、Scanner：只读三家存储</h2>
+<table>
+<tr><th>产品</th><th>列表来源</th><th>进度来源</th><th>空闲判定</th><th>注意</th></tr>
+<tr><td>Claude</td><td>遍历 <code>~/.claude/projects/*/*.jsonl</code>，首行取 cwd、entrypoint、sessionId；跳过 subagents 目录与 sidechain</td><td>tail 文件增量解析</td><td>最后一条为 result 且 3 秒无写入</td><td>过滤 entrypoint 为 sdk-cli 的内部工具会话</td></tr>
+<tr><td>Codex</td><td><code>state_5.sqlite</code> threads 表（只读打开，immutable=1 避免锁）</td><td>rollout_path 指向的 jsonl tail</td><td>jsonl 5 秒无写入</td><td>rollout_path 不存在 → resumable=false；archived=1 → 续接前 unarchive</td></tr>
+<tr><td>Cursor</td><td><code>state.vscdb</code> 中 composerData:* 键；库有 10GB，只按 key 点查，不全表扫</td><td>bubbleId:&lt;composer&gt;:&lt;id&gt; 按 fullConversationHeadersOnly 顺序取</td><td>generatingBubbleIds 为空且 status 非 generating</td><td>WAL 模式，只读连接需带 <code>?mode=ro</code>；合并 ~/.cursor/chats 的 CLI 续聊</td></tr>
+</table>
+<p>fs.watch 触发增量，每 60 秒全量对账一次兜底。首次启动只扫最近 30 天，历史会话按需分页加载。</p>
+
+<h2>七、Gateway 协议与鉴权</h2>
+<h3>客户端 ↔ Hub 消息</h3>
+<pre><code>// 客户端 → Hub
+{ t: 'hello',     token, sinceSeq }                       // 重连补拉
+{ t: 'subscribe', sessionId }                             // 订阅某会话的详细事件
+{ t: 'send',      sessionId, text, force?: boolean }      // 续聊；force 仅 Cursor 有意义
+{ t: 'start',     vendor, cwd, text }                     // 新会话
+{ t: 'approve',   approvalId, decision }                  // allow | deny | allow_session
+{ t: 'interrupt', sessionId }
+
+// Hub → 客户端
+{ t: 'event', seq, event: HubEvent }
+{ t: 'snapshot', sessions: SessionView[] }                // hello 之后先发一份列表
+{ t: 'error', code, message }
+
+// REST（给 PWA 首屏与 curl 调试）
+GET  /api/sessions?vendor=&state=&limit=
+GET  /api/sessions/:id/events?sinceSeq=
+POST /api/pair            { code, deviceName } → { token }
+GET  /api/health</code></pre>
+
+<h3>设备配对流程</h3>
+<figure>
+<svg viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg">
+<g class="lbl b"><text x="130" y="34">Mac 终端 / 菜单栏</text><text x="450" y="34">Hub</text><text x="770" y="34">手机 PWA</text></g>
+<g stroke="#d0d7de" stroke-width="1.2"><line x1="130" y1="45" x2="130" y2="285"/><line x1="450" y1="45" x2="450" y2="285"/><line x1="770" y1="45" x2="770" y2="285"/></g>
+<path class="arr" d="M130,75 L448,75"/><text class="lbl s" x="290" y="67">hub pair（生成一次性码，5 分钟有效）</text>
+<path class="arr" d="M450,110 L132,110"/><text class="lbl s" x="290" y="102">显示二维码：hub 地址 + 配对码</text>
+<path class="arr g" d="M770,150 L452,150"/><text class="lbl s" x="610" y="142">扫码 → POST /api/pair {code, deviceName}</text>
+<path class="arr" d="M450,190 L768,190"/><text class="lbl s" x="610" y="182">返回设备 token（Hub 只存哈希）</text>
+<path class="arr g" d="M770,230 L452,230"/><text class="lbl s" x="610" y="222">WS hello {token}，之后每次连接携带</text>
+<text class="lbl s" x="450" y="272">吊销：hub devices revoke &lt;name&gt;；审批类命令在 PWA 端可再叠一层系统生物识别</text>
+</svg>
+<figcaption>图 2 · 配对一次，长期使用；没有账号体系，没有第三方登录</figcaption>
+</figure>
+
+<h3>网络</h3>
+<ul>
+<li><b>第一阶段只走 Tailscale。</b>Hub 监听 tailnet 地址，手机装 Tailscale 后 PWA 直连，网络层已带设备身份，Hub 的 token 是第二道。不开公网端口，不做 relay。</li>
+<li><b>Web Push</b> 需要 HTTPS。用 Tailscale 自带的证书签发给 Hub，PWA 才能注册推送。iOS 要求 PWA 添加到主屏幕后才收推送。</li>
+<li>relay 留到第三阶段，等出现"没有 Tailscale 的手机也要用"这个需求再做。</li>
+</ul>
+
+<h2>八、PWA 界面</h2>
+<div class="grid">
+<div class="card"><h4>会话列表页</h4>按更新时间排序，每行显示厂商色条、标题、目录、状态（运行中 / 空闲 / 待审批）、最后一句摘要。运行中的行有进度条式的实时更新。不可续接的灰显并标注原因。</div>
+<div class="card"><h4>会话详情页</h4>消息流 + 工具调用折叠块 + 审批卡片。底部输入框，会话运行中时禁用并显示"桌面端正在工作"。Cursor 会话多一个"放行执行"开关。</div>
+<div class="card"><h4>审批卡片</h4>命令或文件改动摘要、目录、风险标签、三个按钮：允许 / 拒绝 / 本会话允许。倒计时显示到期时间。</div>
+<div class="card"><h4>新建会话</h4>选厂商、选目录（配置文件里的白名单）、输入首句。</div>
+</div>
+
+<h2>九、常驻与可靠性</h2>
+<ul>
+<li>launchd 用户级 agent，KeepAlive，崩溃自动拉起；日志按天写到 <code>~/Library/Logs/agent-hub/</code>。</li>
+<li>Hub 起来时对每个未完成的 Hub 发起的轮次做一次对账：进程不在了就标记 error，让用户重发。</li>
+<li><code>caffeinate -s</code> 由 Hub 按需调用：有运行中的 Hub 轮次时阻止休眠，空闲时释放，不常年防休眠。</li>
+<li>三家二进制路径写在配置里并在启动时校验版本；Codex 版本变化时提示重新生成协议类型。</li>
+<li>并发保护：同一会话同一时间只允许一个 Hub 轮次；Scanner 判定非空闲时拒绝 send 并返回原因。</li>
+</ul>
+
+<h2>十、里程碑</h2>
+<table>
+<tr><th>阶段</th><th>范围</th><th>验收</th><th>估时</th></tr>
+<tr><td>M0 骨架</td><td>目录、配置、SQLite、事件类型、Gateway 配对、Claude Scanner + Adapter</td><td>用 curl/wscat 从另一台设备列出 Claude 会话并续聊一句，审批走通</td><td>1 天</td></tr>
+<tr><td>M1 三家齐</td><td>Codex 与 Cursor 的 Scanner + Adapter，事件回放测试</td><td>三家会话都在同一列表；Desktop 建的会话空闲后能在手机续聊</td><td>1.5 天</td></tr>
+<tr><td>M2 PWA</td><td>列表、详情、审批、新建；Tailscale HTTPS；Web Push</td><td>手机添加到主屏幕，收到审批推送并处理</td><td>2 天</td></tr>
+<tr><td>M3 打磨</td><td>launchd、对账、caffeinate、飞书桥（可选）</td><td>连续运行一周无需手工干预</td><td>1 天</td></tr>
+</table>
+<p>合计约一周的业余时间。M0 完成后每一阶段都可独立使用。</p>
+
+<h2>十一、风险与应对</h2>
+<table>
+<tr><th>风险</th><th>影响</th><th>应对</th></tr>
+<tr><td>三家存储格式变化</td><td>Scanner 解析失败</td><td>解析用 zod 宽松校验，未知字段忽略；每家保留一份录制样本做回归；失败只影响该家</td></tr>
+<tr><td>Codex app-server 标注 experimental</td><td>方法名或参数变化</td><td>协议类型由官方命令生成，升级重跑脚本；Adapter 内隔离</td></tr>
+<tr><td>Cursor 10GB 数据库读性能</td><td>列表慢</td><td>只做 key 点查与 rowid 倒序分页；首次扫描限制数量；结果缓存进 Hub 自己的 SQLite</td></tr>
+<tr><td>与桌面端同时写同一会话</td><td>会话文件损坏或上下文错乱</td><td>Scanner 空闲判定 + Hub 侧互斥；非空闲一律拒绝</td></tr>
+<tr><td>Hub 被非法访问</td><td>可在 Mac 上执行命令</td><td>仅 tailnet 监听；设备 token 哈希存储；审批操作可叠生物识别；目录白名单</td></tr>
+</table>
+</main>
+</body>
+</html>
