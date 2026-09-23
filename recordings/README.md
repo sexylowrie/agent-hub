@@ -13,3 +13,9 @@
 
 待补（M1）：`codex/rollout-sample.jsonl`（GUI 会话文件格式）、`cursor/store-db-sample.json`（CLI 续聊存储格式）。
 录制脚本：`npm run record -- <vendor>`（M0 实现 `scripts/record.ts`）。
+
+## Scanner 样本（M0 补充）
+| 文件 | 内容 | 用途 |
+|---|---|---|
+| claude/session-cli-sample.jsonl | 真实 `entrypoint:cli` 交互会话前 30 行，经 `scripts/trim-claude-session.ts` 裁剪（丢 attachment、截断长文本） | Scanner 头尾解析、标题、增量进度 |
+| claude/session-sdk-cli-sample.jsonl | 上面 permission-roundtrip 那次 `claude -p` 落盘的会话文件，同样裁剪 | sdk-cli 过滤 |
