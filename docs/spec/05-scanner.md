@@ -37,7 +37,7 @@
 - 列表 = IDE composer ∪ `~/.cursor/chats/*/<id>/`（纯 CLI 会话，含 Hub start 建的）。origin：IDE 有该 composer→desktop，只在 chats→cli，Hub 登记的→hub。
 - cwd：`composerData.workspaceIdentifier.uri.fsPath`，没有则取 `~/.cursor/chats/.../meta.json.cwd`；都没有显示为空，仍允许续聊（`agent --resume` 不依赖 cwd）。
 - title：IDE `name` → 首个 header 的 `textPreview` → chats meta 的 name（非默认 "New Agent"）→ 首条 `<user_query>`。
-- 运行：`generatingBubbleIds.length>0` 或 `status==='generating'` → running；chats 的 store.db 最近 `idleQuietMs.cursor` 内有写入也算 running；否则 idle。
+- 运行：`status==='aborted'` 且 Cursor IDE 主进程（`/Cursor.app/Contents/MacOS/Cursor`）在运行 → running（生成中落库就是 aborted，见 01；真被中断的会话会被误判为 running，在 IDE 里再发一句或退出 IDE 即恢复）；`generatingBubbleIds.length>0` 或 `status==='generating'` 保留为兜底；chats 的 store.db 最近 `idleQuietMs.cursor` 内有写入也算 running；否则 idle。
 - 监听：`globalStorage/` 下 `state.vscdb*` 与 `~/.cursor/chats` 下 `store.db/meta.json` 变化 → 全量重扫（约 70ms，去抖 1 秒）。
 - 消息（会话详情 `GET /api/sessions/:id` 的 `messages`）：按 `fullConversationHeadersOnly` 取最近 N 条（默认 50）点查 `bubbleId:<c>:<b>`，再接上 `~/.cursor/chats/.../store.db` 里的消息，取最后 N 条。store.db 格式见 01（样本 `recordings/cursor/store-db-sample.json`，IDE 样本 `ide-composer-sample.json`）。
 - 已知限制：终端里交互式 `agent` 正在跑的会话无法判定（没有 pid 登记），只能靠 store.db 写入时间。

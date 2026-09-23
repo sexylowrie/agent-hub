@@ -102,6 +102,7 @@
 - **`--stream-partial-output`**：assistant 按片段输出（带 `timestamp_ms`），一段结束后再把这段全文整块输出一次（紧挨工具调用前的那次也带 `timestamp_ms`，最后一次不带）。Adapter 规则：整块文本等于累计片段时丢弃。样本：`recordings/cursor/resume-one-turn.ndjson`。
 - **SIGINT**：没有 `result` 行，stderr `Aborting operation...`，退出码 130。样本：`recordings/cursor/interrupted.ndjson`。
 - `agent -p` 从拉起到 `system.init` 实测约 15 秒（续聊 IDE 会话时），整轮 20–30 秒。
+- **IDE 生成中的落库状态**（每 0.5s 轮询 composerData，一次约 110 秒的长任务）：`generatingBubbleIds` **始终为空**，从未出现 `status:"generating"`；用户消息发出 0.5s 内落库，status 变为 **`aborted`**，bubble 随生成陆续写入（h7→h71），`lastUpdatedAt` 停在本轮开始时刻不刷新；结束时 status 改为 `completed`。真被中断/IDE 中途退出的会话也停在 `aborted`（本机近 30 天 19 个有内容的会话里 1 个）。原"generatingBubbleIds 非空即 running"的判据不成立。
 
 ## 三家共性
 - 都是"本机进程 + 出站连接"，Hub 不需要开任何入站端口给厂商。
