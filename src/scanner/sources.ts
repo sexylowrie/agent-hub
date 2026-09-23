@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { sessionKey, type HistoryItem, type HubEvent, type SessionView, type Vendor } from '../core/events.ts'
 import type { ClaudeScanner } from './claude.ts'
@@ -16,6 +17,9 @@ export interface ScanSource {
   watchDirs(): string[]
   /** 去抖时间，默认 300ms */
   watchDebounceMs?: number
+  /** fs.watch 收不到事件的文件改用轮询：返回自上次调用以来 mtime/size 变化的文件 */
+  pollFiles?(): string[]
+  pollMs?: number
   /** 监听到变化：返回需要合并的会话与桌面端进度事件；later 为静默期后需要复查的会话 */
   onFiles(files: Set<string>): { views: SessionView[]; progress: HubEvent[]; later?: () => SessionView[] }
   /** Hub 轮次结束前：跳过本轮自己写入的文件内容 */
@@ -121,18 +125,36 @@ export function codexSource(s: CodexScanner, fallbackModel: string): ScanSource 
 export function cursorSource(s: CursorScanner): ScanSource {
   const globalDir = dirname(s.globalDb)
   const dbName = basename(s.globalDb)
+  const sigs = new Map<string, string>()
   return {
     vendor: 'cursor',
     init: () => s.scanAll(),
     scanAll: () => s.scanAll(),
     refresh: (id) => s.refresh(id),
-    watchDirs: () => [globalDir, s.chatsDir],
+    // IDE 写 state.vscdb-wal 时 fs.watch（FSEvents）收不到事件（实测），IDE 侧改为轮询 stat；chats 仍用 fs.watch
+    watchDirs: () => [s.chatsDir],
     watchDebounceMs: 1000,
+    pollMs: 1500,
+    pollFiles() {
+      const changed: string[] = []
+      for (const f of [s.globalDb, `${s.globalDb}-wal`]) {
+        let sig = ''
+        try {
+          const st = statSync(f)
+          sig = `${st.mtimeMs}:${st.size}`
+        } catch {
+          // 不存在
+        }
+        if (sigs.has(f) && sigs.get(f) !== sig) changed.push(f)
+        sigs.set(f, sig)
+      }
+      return changed
+    },
     onFiles(files) {
       const relevant = [...files].some(
         (f) => (dirname(f) === globalDir && basename(f).startsWith(dbName)) || (f.startsWith(s.chatsDir) && /(store\.db|meta\.json)/.test(f)),
       )
-      // IDE 生成期间 WAL 高频变化；全量扫描约 70ms，main 对 Cursor 用 1s 去抖（watchDebounceMs）
+      // IDE 生成期间 WAL 高频变化；全量扫描约 70–100ms，轮询间隔 1.5s 即是节流
       return { views: relevant ? s.scanAll() : [], progress: [] }
     },
     history: (id, limit) => s.history(id, limit),

@@ -1,7 +1,7 @@
 # 05 · Scanner（只读）
 
 ## 通用
-- `watcher.ts`：对各家目录/文件用 `fs.watch`（递归，macOS 支持），事件去抖 300ms；另每 `reconcileSeconds` 全量对账一次。
+- `watcher.ts`：对各家目录/文件用 `fs.watch`（递归，macOS 支持），事件去抖 300ms；fs.watch 收不到事件的文件（Cursor 的 state.vscdb-wal）改为轮询 stat；另每 `reconcileSeconds` 全量对账一次。
 - 首次启动只纳入 `vendorUpdatedAt` 在 `recentDays` 内的会话；更早的按需分页。
 - 输出：`session.upsert`、`session.state`，以及桌面端运行中的进度事件（`message.delta`/`tool.call`/`turn.done`，source=desktop）。
 - **空闲判定**是续聊互斥的依据，宁可误判为 running。
@@ -38,6 +38,6 @@
 - cwd：`composerData.workspaceIdentifier.uri.fsPath`，没有则取 `~/.cursor/chats/.../meta.json.cwd`；都没有显示为空，仍允许续聊（`agent --resume` 不依赖 cwd）。
 - title：IDE `name` → 首个 header 的 `textPreview` → chats meta 的 name（非默认 "New Agent"）→ 首条 `<user_query>`。
 - 运行：`status==='aborted'` 且 Cursor IDE 主进程（`/Cursor.app/Contents/MacOS/Cursor`）在运行 → running（生成中落库就是 aborted，见 01；真被中断的会话会被误判为 running，在 IDE 里再发一句或退出 IDE 即恢复）；`generatingBubbleIds.length>0` 或 `status==='generating'` 保留为兜底；chats 的 store.db 最近 `idleQuietMs.cursor` 内有写入也算 running；否则 idle。
-- 监听：`globalStorage/` 下 `state.vscdb*` 与 `~/.cursor/chats` 下 `store.db/meta.json` 变化 → 全量重扫（约 70ms，去抖 1 秒）。
+- 监听：`state.vscdb` / `state.vscdb-wal` 每 1.5 秒轮询 stat（fs.watch 收不到 IDE 写入，见 01），变化即全量重扫（约 70–100ms）；`~/.cursor/chats` 下 `store.db/meta.json` 用 fs.watch（去抖 1 秒）。续聊前 Core 仍会 `refresh()` 直接读库复核，不依赖列表是否及时。
 - 消息（会话详情 `GET /api/sessions/:id` 的 `messages`）：按 `fullConversationHeadersOnly` 取最近 N 条（默认 50）点查 `bubbleId:<c>:<b>`，再接上 `~/.cursor/chats/.../store.db` 里的消息，取最后 N 条。store.db 格式见 01（样本 `recordings/cursor/store-db-sample.json`，IDE 样本 `ide-composer-sample.json`）。
 - 已知限制：终端里交互式 `agent` 正在跑的会话无法判定（没有 pid 登记），只能靠 store.db 写入时间。

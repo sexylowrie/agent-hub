@@ -88,6 +88,16 @@ async function serve() {
       }
     }
     stops.push(watchDirs(src.watchDirs(), onFiles, src.watchDebounceMs))
+    if (src.pollFiles) {
+      const poll = src.pollFiles.bind(src)
+      poll() // 记下初始签名
+      stops.push(
+        every(src.pollMs ?? 1000, () => {
+          const files = poll()
+          if (files.length) onFiles(new Set(files))
+        }),
+      )
+    }
   }
   stops.push(
     every(cfg.scanner.reconcileSeconds * 1000, () => {

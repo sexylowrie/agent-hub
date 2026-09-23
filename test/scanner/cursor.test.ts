@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CursorScanner, chatMessageItems, composerState, readStoreDb, rootMessageIds } from '../../src/scanner/cursor.ts'
+import { cursorSource } from '../../src/scanner/sources.ts'
 import { recordingPath, storeDbFromSample, vscdbFromSamples } from '../helpers.ts'
 
 const IDE_ID = 'dc0a49f7-ea72-4ce8-bfad-10db22d991b0'
@@ -124,4 +125,19 @@ test('只读：不存在的库不报错，返回空', () => {
   const s = new CursorScanner({ globalDb: '/nonexistent/state.vscdb', chatsDir: '/nonexistent', recentDays: 30, quietMs: 0 })
   assert.deepEqual(s.scanAll(), [])
   assert.equal(s.refresh(IDE_ID), undefined)
+})
+
+test('IDE 库改用轮询：首次只记签名，state.vscdb 变化后报出并触发重扫', () => {
+  const { root, scanner } = fixture()
+  const src = cursorSource(scanner)
+  assert.deepEqual(src.watchDirs(), [join(root, 'chats')])
+  assert.deepEqual(src.pollFiles!(), [])
+  assert.deepEqual(src.pollFiles!(), [])
+  const db = join(root, 'state.vscdb')
+  const t = new Date(Date.now() + 5000)
+  utimesSync(db, t, t)
+  const changed = src.pollFiles!()
+  assert.deepEqual(changed, [db])
+  assert.ok(src.onFiles(new Set(changed)).views.some((v) => v.vendorSessionId === IDE_ID))
+  assert.deepEqual(src.pollFiles!(), [])
 })

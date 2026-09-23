@@ -15,7 +15,7 @@
 
 ## 状态
 - [x] M0 骨架 + Claude
-- [ ] M1 Codex + Cursor
+- [x] M1 Codex + Cursor
 - [ ] M2 PWA
 - [ ] M3 常驻与打磨
 
