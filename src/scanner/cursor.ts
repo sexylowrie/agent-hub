@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -142,9 +143,26 @@ const COMPOSER_COLS = `
   json_extract(value, '$.fullConversationHeadersOnly[#-1].grouping.textPreview') AS lastPreview,
   json_extract(value, '$.workspaceIdentifier.uri.fsPath') AS workspace`
 
-/** 运行判定：有正在生成的 bubble 或 status=generating。宁可误判为 running。 */
-export function composerState(r: Pick<ComposerRow, 'generating' | 'status'>): SessionState {
-  return (r.generating ?? 0) > 0 || r.status === 'generating' ? 'running' : 'idle'
+/**
+ * 运行判定。实测 IDE 生成期间 generatingBubbleIds 始终为空、lastUpdatedAt 停在本轮开始时刻，
+ * 落库的 status 是 aborted，结束时才改成 completed；真被中断（或 IDE 中途退出）的会话也停在 aborted。
+ * 所以：status=aborted 且 Cursor IDE 在运行 → running（被中断的会话会误判为 running，宁可如此）；
+ * IDE 没在运行时 aborted 视为遗留。generatingBubbleIds / status=generating 保留为兜底信号。
+ */
+export function composerState(r: Pick<ComposerRow, 'generating' | 'status'>, ideAlive: () => boolean): SessionState {
+  if ((r.generating ?? 0) > 0 || r.status === 'generating') return 'running'
+  if (r.status === 'aborted' && ideAlive()) return 'running'
+  return 'idle'
+}
+
+/** Cursor IDE 主进程是否在运行 */
+export function cursorIdeRunning(): boolean {
+  try {
+    const out = execFileSync('ps', ['-Ao', 'comm='], { encoding: 'utf8', timeout: 5000 })
+    return out.split('\n').some((l) => l.trim().endsWith('/Cursor.app/Contents/MacOS/Cursor'))
+  } catch {
+    return true // 查不到就保守处理
+  }
 }
 
 function bubbleItem(o: any, at?: number): HistoryItem | undefined {
@@ -163,6 +181,7 @@ export interface CursorScannerOpts {
   recentDays: number
   quietMs: number
   isHubSession?: (composerId: string) => boolean
+  ideAlive?: () => boolean
   now?: () => number
 }
 
@@ -288,7 +307,13 @@ export class CursorScanner {
     return chat
   }
 
-  private view(row: ComposerRow | undefined, chat: CliChat | undefined): SessionView | undefined {
+  /** IDE 进程探测：只在有 aborted 会话时做，一次扫描最多一次 */
+  private aliveProbe(): () => boolean {
+    let cached: boolean | undefined
+    return () => (cached ??= (this.o.ideAlive ?? cursorIdeRunning)())
+  }
+
+  private view(row: ComposerRow | undefined, chat: CliChat | undefined, ideAlive: () => boolean): SessionView | undefined {
     const composerId = row?.composerId ?? chat?.composerId
     if (!composerId) return undefined
     const hasIde = !!row && row.headers > 0
@@ -302,7 +327,7 @@ export class CursorScanner {
     const ideAt = hasIde ? (row!.lastUpdatedAt ?? row!.createdAt) : undefined
     const cliAt = chat ? Math.max(chat.updatedAtMs ?? 0, Math.round(chat.mtimeMs)) : undefined
     const cliNewer = cliAt !== undefined && (ideAt === undefined || cliAt > ideAt)
-    let state: SessionState = row ? composerState(row) : 'idle'
+    let state: SessionState = row ? composerState(row, ideAlive) : 'idle'
     if (chat && now - chat.mtimeMs <= this.o.quietMs) state = 'running'
     const preview = cliNewer ? lastAssistant : (row?.lastPreview ?? undefined)
     const v: SessionView = {
@@ -326,6 +351,7 @@ export class CursorScanner {
     const cutoff = this.now() - this.o.recentDays * 86_400_000
     const rows = new Map(this.composers(cutoff).map((r) => [r.composerId, r]))
     const dirs = this.chatDirs()
+    const alive = this.aliveProbe()
     const out: SessionView[] = []
     for (const [id, dir] of dirs) {
       const chat = this.readChat(id, dir)
@@ -334,11 +360,11 @@ export class CursorScanner {
       const row = rows.get(id) ?? (recent ? this.composer(id) : undefined)
       if (!recent && !rows.has(id)) continue
       rows.delete(id)
-      const v = this.view(row, chat)
+      const v = this.view(row, chat, alive)
       if (v) out.push(v)
     }
     for (const row of rows.values()) {
-      const v = this.view(row, undefined)
+      const v = this.view(row, undefined, alive)
       if (v) out.push(v)
     }
     return out
@@ -347,7 +373,7 @@ export class CursorScanner {
   /** 续聊前的实时复核 */
   refresh(composerId: string): SessionView | undefined {
     const dir = this.chatDirs().get(composerId)
-    return this.view(this.composer(composerId), dir ? this.readChat(composerId, dir) : undefined)
+    return this.view(this.composer(composerId), dir ? this.readChat(composerId, dir) : undefined, this.aliveProbe())
   }
 
   /** 会话详情：IDE 消息（最近 limit 条 bubble，按 key 点查）+ CLI 续聊消息，取最后 limit 条 */

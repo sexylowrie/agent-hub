@@ -58,10 +58,14 @@ test('readStoreDb：从 sqlite 读出与样本一致的消息', () => {
   assert.equal(r.items.filter((i) => i.role === 'user').length, 3)
 })
 
-test('composerState：generatingBubbleIds 非空或 status=generating 即 running', () => {
-  assert.equal(composerState({ generating: 0, status: 'completed' }), 'idle')
-  assert.equal(composerState({ generating: 1, status: 'completed' }), 'running')
-  assert.equal(composerState({ generating: 0, status: 'generating' }), 'running')
+test('composerState：生成中落库为 aborted（实测），IDE 在运行才算 running；generating 信号兜底', () => {
+  const alive = () => true
+  const dead = () => false
+  assert.equal(composerState({ generating: 0, status: 'completed' }, alive), 'idle')
+  assert.equal(composerState({ generating: 0, status: 'aborted' }, alive), 'running')
+  assert.equal(composerState({ generating: 0, status: 'aborted' }, dead), 'idle')
+  assert.equal(composerState({ generating: 1, status: 'completed' }, dead), 'running')
+  assert.equal(composerState({ generating: 0, status: 'generating' }, dead), 'running')
 })
 
 test('scanAll：IDE composer（desktop，cwd 取 workspaceIdentifier）+ 纯 CLI 会话（cli，标题取首条输入）', () => {
@@ -82,9 +86,15 @@ test('scanAll：IDE composer（desktop，cwd 取 workspaceIdentifier）+ 纯 CLI
   assert.match(cli.lastMessagePreview!, /hub-probe/)
 })
 
-test('IDE 正在生成：state=running', () => {
-  const { scanner } = fixture({ patch: (cd) => (cd.generatingBubbleIds = ['b1']) })
-  assert.equal(scanner.refresh(IDE_ID)!.state, 'running')
+test('IDE 正在生成：status=aborted 且 IDE 在运行 → running；IDE 未运行 → idle', () => {
+  const patch = (cd: any) => (cd.status = 'aborted')
+  const a = fixture({ patch })
+  const alive = new CursorScanner({ globalDb: join(a.root, 'state.vscdb'), chatsDir: join(a.root, 'chats'), recentDays: 30, quietMs: 0, ideAlive: () => true, now: () => 1790190000000 + DAY })
+  assert.equal(alive.refresh(IDE_ID)!.state, 'running')
+  const dead = new CursorScanner({ globalDb: join(a.root, 'state.vscdb'), chatsDir: join(a.root, 'chats'), recentDays: 30, quietMs: 0, ideAlive: () => false, now: () => 1790190000000 + DAY })
+  assert.equal(dead.refresh(IDE_ID)!.state, 'idle')
+  const g = fixture({ patch: (cd) => (cd.generatingBubbleIds = ['b1']) })
+  assert.equal(g.scanner.refresh(IDE_ID)!.state, 'running')
 })
 
 test('空草稿不列出；超出 recentDays 不列出', () => {
