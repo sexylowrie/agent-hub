@@ -69,6 +69,7 @@
 - **归档**：`codex archive <id>` 会把 rollout 移到 `~/.codex/archived_sessions/` 并更新 `rollout_path`；`thread/unarchive` 移回。归档线程直接 resume 报 `session <id> is archived. Run codex unarchive <id> to unarchive it first.`（原文里命令带反引号）。样本：`app-server-unarchive-resume.ndjson`。
 - **线程写锁**：app-server 加载一个线程时持有 `~/.codex/thread-writer-locks/<threadId>.lock`（flock，文件保持打开；释放后文件删除）。ChatGPT App 里**正打开着**的线程由 GUI 的 app-server 持锁，此时另一个 app-server resume 报 `thread <id> already has an active writer`。Scanner 用 `lsof -Fn` 查锁文件是否被进程打开（约 150ms，只在有锁文件时查）。
 - 实测 GUI 里一轮早已结束（01:14）、线程仍停留在界面上时（01:38），锁一直被持有，Hub 视为不可续聊（state=running）。
+- 在 App 里**切到别的线程不释放**：本次运行中打开过的线程都保持加锁。**退出 ChatGPT App（⌘Q）后锁文件全部删除**，随后 Hub 续聊 GUI 线程成功，线程模型（gpt-6-astra）不变。
 - **rollout 格式**（`recordings/codex/rollout-*.jsonl`）：`session_meta`、`event_msg{task_started|task_complete|turn_aborted|item_completed|token_count|thread_settings_applied}`、`response_item{message|function_call|function_call_output|custom_tool_call|reasoning|...}`、`world_state`、`turn_context`、`token_usage_record`、`compacted`。
   - 一轮以 `task_started` 开始，以 `task_complete{last_agent_message,duration_ms}` 或 `turn_aborted{reason:"interrupted"}` 结束。
   - 真实用户输入看 `event_msg.item_completed{item.type:"UserMessage"}`；`response_item` 里 role=user 的还有注入上下文（`# AGENTS.md instructions`、`<environment_context>`、`<recommended_plugins>`、`<turn_aborted>`）。

@@ -35,5 +35,5 @@ HUB_TOKEN=<token> npx tsx scripts/ws-client.ts send <sessionId> "<text>"   # 命
 注：部分 curl 版本不接受 `:7788` 这种省略主机的写法，用 `127.0.0.1:7788`。
 
 续聊前提（M1）：
-- Codex：ChatGPT App 里**正打开着**的线程会被 GUI 持有写锁，Hub 显示为 running、拒绝续聊；在 App 里切到别的线程后即可。
+- Codex：ChatGPT App 本次运行中打开过的线程都被 GUI 持有写锁（切到别的线程也不释放），Hub 显示为 running、拒绝续聊；退出 ChatGPT App 后即可续聊。
 - Cursor：IDE 里正在生成时拒绝续聊；Hub 续聊写到 `~/.cursor/chats`，不回写 IDE 的 `state.vscdb`（Hub 会话详情会把两边拼起来）。
