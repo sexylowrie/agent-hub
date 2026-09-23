@@ -55,6 +55,13 @@ CREATE TABLE IF NOT EXISTS pairing_codes (
   expires_at INTEGER NOT NULL,
   used INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS hub_turns (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL,
@@ -84,6 +91,13 @@ export interface ApprovalRow {
   decidedBy: string | null
   createdAt: number
   expiresAt: number
+}
+
+export interface PushSubscriptionRow {
+  endpoint: string
+  deviceId: string
+  p256dh: string
+  auth: string
 }
 
 export interface DeviceRow {
@@ -267,6 +281,33 @@ export class Store {
 
   expireAllPending(now = Date.now()) {
     this.db.prepare(`UPDATE approvals SET status='expired', decided_at=? WHERE status='pending'`).run(now)
+  }
+
+  // ---- push ----
+  upsertPushSubscription(s: PushSubscriptionRow, now = Date.now()) {
+    this.db
+      .prepare(
+        `INSERT INTO push_subscriptions (endpoint, device_id, p256dh, auth, created_at) VALUES (?,?,?,?,?)
+         ON CONFLICT(endpoint) DO UPDATE SET device_id=excluded.device_id, p256dh=excluded.p256dh, auth=excluded.auth`,
+      )
+      .run(s.endpoint, s.deviceId, s.p256dh, s.auth, now)
+  }
+
+  deletePushSubscription(endpoint: string, deviceId?: string): number {
+    const r = deviceId
+      ? this.db.prepare('DELETE FROM push_subscriptions WHERE endpoint=? AND device_id=?').run(endpoint, deviceId)
+      : this.db.prepare('DELETE FROM push_subscriptions WHERE endpoint=?').run(endpoint)
+    return Number(r.changes)
+  }
+
+  /** 只列未吊销设备的订阅 */
+  listPushSubscriptions(): PushSubscriptionRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT p.endpoint, p.device_id, p.p256dh, p.auth FROM push_subscriptions p JOIN devices d ON d.id = p.device_id WHERE d.revoked = 0`,
+      )
+      .all() as Row[]
+    return rows.map((r) => ({ endpoint: r.endpoint, deviceId: r.device_id, p256dh: r.p256dh, auth: r.auth }))
   }
 
   // ---- devices ----

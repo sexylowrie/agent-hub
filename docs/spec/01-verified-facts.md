@@ -108,3 +108,11 @@
 ## 三家共性
 - 都是"本机进程 + 出站连接"，Hub 不需要开任何入站端口给厂商。
 - 三家的登录态都在本机，Hub 子进程直接继承，**不需要在 Hub 里处理任何厂商鉴权**。
+
+## 常驻与推送 · M3 实测（2026-09-24）
+- **kill -9 Hub 后厂商子进程还活着**：Hub 轮次中 `kill -9` Hub，`claude -p --resume … --input-format stream-json` 子进程没有随之退出（stdin 管道断了也不立刻退）。旧对账只处理"pid 不存在"的轮次，会让这类轮次永远停在 running、会话一直 SESSION_BUSY。现在启动时所有 running 轮次一律 orphaned，子进程还活着且命令行是厂商二进制就 SIGTERM。
+- **tsx CLI 是两个进程**：`tsx x.ts` 先起一个 node 再 spawn 真正跑代码的 node。launchd 下若用 tsx CLI，`kill -9` 只杀掉外层，内层继续占着端口，新实例起不来。plist 里直接 `node --import tsx src/main.ts` 单进程运行。
+- **launchd**：`KeepAlive=true` + `ThrottleInterval=1`，`kill -9` 后 1.6 秒恢复服务（health 可用）；`launchctl kickstart -k` 正常重启。launchd 的默认 PATH 找不到 `claude`/`agent`（在 `~/.local/bin`），plist 写入安装时的 PATH。
+- **caffeinate**：`caffeinate -s -w <hub pid>` 在 Hub 被 kill -9 后自动退出，不会残留断言。`-s` 只在接电源时生效。合盖接电 30 分钟后仍可访问**未实测**（需要人合盖）。
+- **Web Push 加密**：`encryptPayload` 用 RFC 8291 附录 A 的输入，输出与 RFC 结果逐字节一致；VAPID JWT 用公钥验签通过。Chrome DevTools 驱动的浏览器 `Notification.requestPermission()` 直接返回 denied，拿不到订阅，**真实推送服务（FCM / Apple）尚未验证**。
+- **Tailscale**：本机原先没装；`brew install --cask tailscale-app` 的安装器需要 sudo 密码，得用户在终端自己跑。

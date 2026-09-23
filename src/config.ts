@@ -19,6 +19,15 @@ const ConfigSchema = z.object({
     idleQuietMs: VendorNums,
   }),
   approval: z.object({ expireSeconds: z.number().positive() }),
+  /** 手机访问用的地址（如 tailscale serve 的 https://<mac>.<tailnet>.ts.net），只用于打印配对链接 */
+  publicUrl: z.string().url().optional(),
+  /** VAPID sub：推送服务出问题时的联系方式；Apple 拒绝 localhost 之类的域名 */
+  push: z.object({ subject: z.string() }).default({ subject: 'mailto:agent-hub@users.noreply.github.com' }),
+  /**
+   * 防睡眠（caffeinate -s，只在接电源时生效）：ac=Hub 运行期间一直防睡眠（合盖接电也能被手机访问）；
+   * turn=只在 Hub 轮次进行中；off=不管
+   */
+  power: z.object({ keepAwake: z.enum(['ac', 'turn', 'off']) }).default({ keepAwake: 'ac' }),
 })
 
 export type HubConfig = z.infer<typeof ConfigSchema>

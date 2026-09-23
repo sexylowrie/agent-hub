@@ -11,6 +11,7 @@ import type { AckResult, Hub } from '../core/sessions.ts'
 import type { DeviceRow, Store } from '../core/store.ts'
 import { authenticate, bearer, pairDevice } from './auth.ts'
 import { BROADCAST_TYPES, ClientMessage, WS_CLOSE_UNAUTHORIZED } from './protocol.ts'
+import type { WebPush } from './push.ts'
 
 export interface GatewayDeps {
   cfg: HubConfig
@@ -23,6 +24,7 @@ export interface GatewayDeps {
   history?: (s: SessionView, limit: number) => HistoryItem[] | undefined
   /** PWA 构建产物目录（web/dist）；不存在时只提供 API */
   webRoot?: string
+  push?: WebPush
   log?: (msg: string) => void
 }
 
@@ -58,7 +60,7 @@ export function createApp(d: GatewayDeps) {
       ok: true,
       version: d.version,
       vendors: d.vendors(),
-      ...(authed ? { allowedCwds: d.cfg.allowedCwds } : {}),
+      ...(authed ? { allowedCwds: d.cfg.allowedCwds, ...(d.push ? { push: { vapidPublicKey: d.push.vapid.publicKey } } : {}) } : {}),
     })
   })
 
@@ -99,6 +101,32 @@ export function createApp(d: GatewayDeps) {
     const id = c.req.param('id')
     if (!store.getSession(id)) return c.json({ error: 'not found' }, 404)
     return c.json(store.eventsSince(id, toInt(c.req.query('sinceSeq'), 0), Math.min(toInt(c.req.query('limit'), 500)!, 2000)))
+  })
+
+  app.post('/api/push/subscribe', async (c) => {
+    if (!d.push) return c.json({ error: '推送未启用' }, 404)
+    const b = (await c.req.json().catch(() => ({}))) as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } }
+    const { endpoint } = b
+    const p256dh = b.keys?.p256dh
+    const auth = b.keys?.auth
+    if (typeof endpoint !== 'string' || !/^https:\/\//.test(endpoint) || typeof p256dh !== 'string' || typeof auth !== 'string') {
+      return c.json({ error: '订阅格式不对' }, 400)
+    }
+    store.upsertPushSubscription({ endpoint, deviceId: c.get('device').id, p256dh, auth })
+    log(`推送已订阅：${c.get('device').name} ${new URL(endpoint).host}`)
+    return c.json({ ok: true })
+  })
+
+  app.post('/api/push/unsubscribe', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { endpoint?: unknown }
+    if (typeof b.endpoint !== 'string') return c.json({ error: 'endpoint 必填' }, 400)
+    return c.json({ ok: true, removed: store.deletePushSubscription(b.endpoint, c.get('device').id) })
+  })
+
+  app.post('/api/push/test', async (c) => {
+    if (!d.push) return c.json({ error: '推送未启用' }, 404)
+    const r = await d.push.broadcast({ title: 'Agent Hub', body: `测试推送（来自 ${c.get('device').name}）`, url: '/#/settings', tag: 'test' })
+    return c.json(r)
   })
 
   app.all('/api/*', (c) => c.json({ error: 'not found' }, 404))

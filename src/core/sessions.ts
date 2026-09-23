@@ -19,6 +19,8 @@ export interface HubOpts {
   beforeTurnEnd?: (s: SessionView) => void
   log?: (msg: string) => void
   deltaMergeMs?: number
+  /** 进行中的 Hub 轮次数变化（防睡眠按需开关用） */
+  onBusyChange?: (inFlight: number) => void
 }
 
 interface PendingApproval {
@@ -197,6 +199,7 @@ export class Hub {
     let sessionId = initialSessionId
     const ctrl = new AbortController()
     this.inFlight.set(sessionId, { turnId, ctrl })
+    this.o.onBusyChange?.(this.inFlight.size)
     this.store.insertTurn(turnId, sessionId)
     const isPending = sessionId.startsWith('pending:')
     if (!isPending) this.setState(sessionId, 'running', 'hub')
@@ -243,6 +246,7 @@ export class Hub {
         }
       }
       this.inFlight.delete(sessionId)
+      this.o.onBusyChange?.(this.inFlight.size)
       this.store.finishTurn(turnId, finalStatus === 'success' || finalStatus === 'interrupted' ? 'done' : 'failed')
       const s = this.store.getSession(sessionId)
       if (s) {
@@ -306,11 +310,17 @@ export class Hub {
     for (const f of this.inFlight.values()) f.ctrl.abort()
   }
 
-  /** 启动对账：running 但 pid 不存在的轮次标 orphaned，会话置 error */
-  reconcileOrphans(isAlive: (pid: number) => boolean) {
+  /**
+   * 启动对账：库里仍是 running 的轮次都属于上一个 Hub 进程（已不在），一律标 orphaned、会话置 error。
+   * 子进程还活着（Hub 被 kill -9 时可能留下）就交给 stop 结束，否则它没人消费、会话会一直被占着。
+   */
+  reconcileOrphans(isAlive: (pid: number) => boolean, stop?: (pid: number) => void) {
     this.store.expireAllPending()
     for (const t of this.store.runningTurns()) {
-      if (t.pid && isAlive(t.pid)) continue
+      if (t.pid && isAlive(t.pid)) {
+        this.log(`对账：轮次 ${t.id} 的子进程 ${t.pid} 仍在运行，结束它`)
+        stop?.(t.pid)
+      }
       this.store.markTurnOrphaned(t.id)
       if (this.store.getSession(t.sessionId)) this.setState(t.sessionId, 'error', 'orphaned')
       this.record({ type: 'error', sessionId: t.sessionId, message: `Hub 轮次 ${t.id} 异常中断（orphaned）`, recoverable: true })

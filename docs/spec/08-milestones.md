@@ -36,7 +36,7 @@ npm test
 验收：手机浏览器打开 `http://<tailscale-ip>:7788` → 配对 → 看到三家会话 → 对 Desktop 建的 Claude 会话续聊一句并处理一次审批 → 添加到主屏幕后仍可用。
 
 ## M3 · 常驻与打磨（目标 1 天）
-范围：`scripts/install-launchd.sh`、启动对账（orphaned）、按需 `caffeinate -s`、Tailscale HTTPS + Web Push、可选 `bridges/feishu.ts`。
+范围：`scripts/install-launchd.sh`、启动对账（orphaned）、按需 `caffeinate -s`、Tailscale HTTPS + Web Push、可选 `bridges/feishu.ts`（2026-09-24 用户决定不做飞书桥）。
 验收：`launchctl kickstart` 后 Hub 自启；kill -9 Hub 进程 5 秒内恢复；合盖接电 30 分钟后手机仍能续聊；手机收到审批推送。
 
 ## 交付物检查

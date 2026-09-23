@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { loadConfig, isCwdAllowed, probeBinaries, type BinaryStatus } from './config.ts'
 import { Bus } from './core/bus.ts'
 import { sessionKey, type SessionView, type Vendor } from './core/events.ts'
@@ -15,6 +16,9 @@ import { claudeSource, codexSource, cursorSource, type ScanSource } from './scan
 import { every, watchDirs } from './scanner/watcher.ts'
 import { createPairingCode } from './gateway/auth.ts'
 import { startGateway } from './gateway/server.ts'
+import { attachPushNotifier } from './gateway/notify.ts'
+import { WebPush, loadVapid } from './gateway/push.ts'
+import { KeepAwake } from './power.ts'
 
 const VERSION: string = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf8')).version
 const WEB_ROOT = join(import.meta.dirname, '..', 'web', 'dist')
@@ -28,10 +32,33 @@ function pidAlive(pid: number): boolean {
   }
 }
 
+/** 对账时只结束确实是厂商 CLI 的进程（防 pid 被复用后误杀） */
+function stopVendorProcess(cfg: ReturnType<typeof loadConfig>) {
+  const names = new Set(Object.values(cfg.binaries).map((b) => basename(b)))
+  return (pid: number) => {
+    let cmd = ''
+    try {
+      cmd = execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 }).trim()
+    } catch {
+      return
+    }
+    const argv0 = basename(cmd.split(/\s+/)[0] ?? '')
+    const isVendor = names.has(argv0) || cmd.split(/\s+/).slice(0, 3).some((a) => names.has(basename(a)))
+    if (!isVendor) return console.log(`[hub] 对账：pid ${pid} 已不是厂商进程（${cmd.slice(0, 80)}），不动它`)
+    try {
+      process.kill(pid, 'SIGTERM')
+    } catch {
+      // 已退出
+    }
+  }
+}
+
 async function serve() {
   const cfg = loadConfig()
   const store = Store.open(cfg.dataDir)
   const bus = new Bus()
+  const keepAwake = new KeepAwake(cfg.power.keepAwake)
+  keepAwake.start()
 
   let vendors: Record<Vendor, BinaryStatus> = await probeBinaries(cfg)
   for (const [v, s] of Object.entries(vendors)) {
@@ -62,9 +89,10 @@ async function serve() {
     isCwdAllowed: (cwd) => isCwdAllowed(cfg, cwd),
     refresh: (s: SessionView) => sources[s.vendor].refresh(s.vendorSessionId),
     beforeTurnEnd: (s) => sources[s.vendor].beforeTurnEnd?.(s.vendorSessionId),
+    onBusyChange: (n) => keepAwake.onBusyChange(n),
   })
 
-  hub.reconcileOrphans(pidAlive)
+  hub.reconcileOrphans(pidAlive, stopVendorProcess(cfg))
 
   // 首次全量扫描；记录各文件 offset，之后只推增量
   const stops: (() => void)[] = []
@@ -107,6 +135,9 @@ async function serve() {
     }),
   )
 
+  const push = new WebPush(store, loadVapid(cfg.dataDir), cfg.push.subject)
+  stops.push(attachPushNotifier(bus, store, push))
+
   const server = await startGateway({
     cfg,
     store,
@@ -116,9 +147,12 @@ async function serve() {
     vendors: () => vendors,
     history: (s, limit) => sources[s.vendor].history?.(s.vendorSessionId, limit),
     webRoot: WEB_ROOT,
+    push,
   })
   if (!existsSync(join(WEB_ROOT, 'index.html'))) console.log(`[gateway] 未找到 PWA 构建产物 ${WEB_ROOT}，先 npm run web:build`)
   console.log(`[gateway] 监听 http://${cfg.listen.host}:${cfg.listen.port}  数据目录 ${cfg.dataDir}`)
+  if (cfg.publicUrl) console.log(`[gateway] 手机访问 ${cfg.publicUrl}`)
+  console.log(`[power] 防睡眠：${cfg.power.keepAwake}`)
 
   let closing = false
   const shutdown = (sig: string) => {
@@ -127,6 +161,7 @@ async function serve() {
     console.log(`[hub] 收到 ${sig}，退出`)
     for (const stop of stops) stop()
     hub.abortAll()
+    keepAwake.release()
     server.close()
     setTimeout(() => {
       store.close()
@@ -146,7 +181,7 @@ function pair() {
   console.log(`配对码：${code}`)
   console.log(`有效期至：${new Date(expiresAt).toLocaleString()}（5 分钟，一次性）`)
   console.log(`agenthub://pair?host=${host}&code=${code}`)
-  console.log(`手机浏览器打开：http://${host}/#/pair?code=${code}`)
+  console.log(`浏览器打开：${cfg.publicUrl?.replace(/\/$/, '') ?? `http://${host}`}/#/pair?code=${code}`)
 }
 
 function devices(args: string[]) {

@@ -167,6 +167,32 @@ test('启动对账：pid 不在的 running 轮次标 orphaned，会话置 error'
   assert.equal(store.getSession(`claude:${SID}`)!.state, 'error')
 })
 
+test('启动对账：子进程仍活着的遗留轮次也标 orphaned，并结束子进程，会话不再被占用', () => {
+  const { store, hub } = setup()
+  hub.applyScan([view('idle')])
+  store.insertTurn('t2', `claude:${SID}`)
+  store.setTurnPid('t2', 4242)
+  const stopped: number[] = []
+  hub.reconcileOrphans(() => true, (pid) => stopped.push(pid))
+  assert.deepEqual(stopped, [4242])
+  assert.equal(store.hasRunningTurn(`claude:${SID}`), false)
+  assert.equal(hub.isBusy(`claude:${SID}`), false)
+})
+
+test('onBusyChange：轮次开始 1、结束 0', async () => {
+  const store = new Store(':memory:')
+  const bus = new Bus()
+  const counts: number[] = []
+  const hub = new Hub({
+    store, bus, adapters: { claude: new ReplayAdapter('claude/one-turn-with-tool.ndjson') }, approvalExpireMs: 60_000,
+    isCwdAllowed: () => true, log: () => {}, onBusyChange: (n) => counts.push(n),
+  })
+  hub.applyScan([view('idle')])
+  assert.equal(hub.send(`claude:${SID}`, 'x').ok, true)
+  await waitFor(() => counts.length === 2)
+  assert.deepEqual(counts, [1, 0])
+})
+
 test('Gateway：REST 鉴权 + WS hello/send/审批/SESSION_BUSY', async () => {
   const { store, bus, hub } = setup('claude/permission-roundtrip.ndjson')
   hub.applyScan([view('idle'), view('running', 'busy-1')])
