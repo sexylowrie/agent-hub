@@ -3,7 +3,7 @@ import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } fr
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { sessionKey, type HubEvent, type Origin, type SessionState, type SessionView } from '../core/events.ts'
+import { sessionKey, type HistoryItem, type HubEvent, type Origin, type SessionState, type SessionView } from '../core/events.ts'
 
 // 字段与判定依据见 docs/spec/01-verified-facts.md「Codex」与 05-scanner.md。
 // rollout 行格式以 recordings/codex/rollout-*.jsonl 为准。
@@ -11,6 +11,8 @@ import { sessionKey, type HubEvent, type Origin, type SessionState, type Session
 const CHUNK = 256 * 1024
 const TITLE_LEN = 60
 const PREVIEW_LEN = 200
+/** 会话详情只读 rollout 末尾这么多字节 */
+const HISTORY_BYTES = 2 * 1024 * 1024
 /** Hub 自起 app-server 时 clientInfo.name，落到 threads.originator */
 export const HUB_ORIGINATOR = 'agent-hub'
 const NO_ROLLOUT = '无本地会话文件（ChatGPT 聊天线程）'
@@ -347,6 +349,22 @@ export class CodexScanner {
     return this.thread(threadId)?.rollout_path ?? undefined
   }
 
+  /** 会话详情：读 rollout 末尾，取最后 limit 条 */
+  history(threadId: string, limit = 50): HistoryItem[] {
+    const r = this.thread(threadId)
+    if (!r?.rollout_path) return []
+    let size: number
+    try {
+      size = statSync(r.rollout_path).size
+    } catch {
+      return []
+    }
+    const start = Math.max(0, size - HISTORY_BYTES)
+    let text = readRange(r.rollout_path, start, size - start)
+    if (start > 0) text = text.slice(text.indexOf('\n') + 1)
+    return rolloutHistory(parseLines(text), originOf(r) === 'desktop' ? 'desktop' : 'cli').slice(-limit)
+  }
+
   /** 增量读取 rollout 新行，转成桌面端进度事件。首次调用只记录 offset，不回放历史。 */
   readProgress(file: string, sessionId: string): HubEvent[] {
     let size: number
@@ -377,6 +395,29 @@ function toolOutput(item: any): string {
   if (item.changes) return Object.keys(item.changes).join('\n')
   if (item.result !== undefined) return typeof item.result === 'string' ? item.result : JSON.stringify(item.result)
   return ''
+}
+
+/** rollout 行 → 历史条目（取 item_completed 里的用户消息、agent 消息与工具项） */
+export function rolloutHistory(lines: any[], source: HistoryItem['source']): HistoryItem[] {
+  const out: HistoryItem[] = []
+  for (const o of lines) {
+    const p = o?.payload
+    if (o?.type !== 'event_msg' || p?.type !== 'item_completed') continue
+    const item = p.item
+    const at = typeof p.completed_at_ms === 'number' ? p.completed_at_ms : undefined
+    if (item?.type === 'UserMessage') {
+      const text = userText(item)
+      if (text) out.push({ role: 'user', text, at, source })
+    } else if (item?.type === 'AgentMessage') {
+      const text = agentText(item)
+      if (text) out.push({ role: 'assistant', text, at, source })
+    } else if (TOOL_ITEMS.has(item?.type)) {
+      const input = item.command ?? item.changes ?? item.arguments ?? null
+      const text = typeof input === 'string' ? input : JSON.stringify(input)
+      out.push({ role: 'tool', text: text.slice(0, 2000), toolName: item.type, at, source })
+    }
+  }
+  return out
 }
 
 /** rollout 行 → 桌面端进度事件（source=desktop）。turns 记录每个会话当前轮次 id。 */

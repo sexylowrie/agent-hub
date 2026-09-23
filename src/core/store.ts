@@ -239,6 +239,14 @@ export class Store {
     return r ? toApproval(r) : undefined
   }
 
+  /** 会话里仍待处理（pending 且未过期）的审批 */
+  pendingApprovals(sessionId: string, now = Date.now()): ApprovalRow[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM approvals WHERE session_id=? AND status='pending' AND expires_at>? ORDER BY created_at`)
+      .all(sessionId, now) as Row[]
+    return rows.map(toApproval)
+  }
+
   /** 只在 pending 且未过期时生效；返回是否成功 */
   decideApproval(id: string, decision: Decision, by: string, now = Date.now()): boolean {
     const status = decision === 'deny' ? 'denied' : 'allowed'

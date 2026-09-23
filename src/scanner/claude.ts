@@ -1,7 +1,7 @@
 import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
-import { sessionKey, type HubEvent, type Origin, type SessionState, type SessionView } from '../core/events.ts'
+import { sessionKey, type HistoryItem, type HubEvent, type Origin, type SessionState, type SessionView } from '../core/events.ts'
 
 // 字段与判定依据见 docs/spec/01-verified-facts.md「Claude Code」与 05-scanner.md。
 
@@ -9,6 +9,8 @@ const CHUNK = 256 * 1024
 const HEAD_MAX = 4 * 1024 * 1024
 const TITLE_LEN = 60
 const PREVIEW_LEN = 200
+/** 会话详情只读文件末尾这么多字节 */
+const HISTORY_BYTES = 2 * 1024 * 1024
 
 export interface ClaudeHead {
   sessionId?: string
@@ -313,6 +315,22 @@ export class ClaudeScanner {
     return f ? this.scanFile(f) : undefined
   }
 
+  /** 会话详情：读文件末尾，取最后 limit 条 */
+  history(vendorSessionId: string, limit = 50): HistoryItem[] {
+    const f = this.findFile(vendorSessionId)
+    if (!f) return []
+    let size: number
+    try {
+      size = statSync(f).size
+    } catch {
+      return []
+    }
+    const start = Math.max(0, size - HISTORY_BYTES)
+    let text = readRange(f, start, size - start)
+    if (start > 0) text = text.slice(text.indexOf('\n') + 1)
+    return historyItems(parseLines(text)).slice(-limit)
+  }
+
   /** 丢弃文件中尚未读取的新行（Hub 轮次自己写入的，Adapter 已产出事件） */
   skipToEnd(file: string) {
     try {
@@ -345,6 +363,27 @@ export class ClaudeScanner {
     this.offsets.set(file, off + Buffer.byteLength(text))
     return progressEvents(parseLines(text), sessionId, this.desktopTurn)
   }
+}
+
+/** 会话文件行 → 历史条目（人类输入、assistant 文本、工具调用）；按行的 entrypoint 区分桌面端与 CLI（含 Hub 续聊） */
+export function historyItems(lines: any[]): HistoryItem[] {
+  const out: HistoryItem[] = []
+  for (const o of lines) {
+    if (o.isSidechain) continue
+    const at = typeof o.timestamp === 'string' ? Date.parse(o.timestamp) || undefined : undefined
+    const source = o.entrypoint === 'claude-desktop' ? 'desktop' : 'cli'
+    const prompt = isHumanPrompt(o)
+    if (prompt) {
+      out.push({ role: 'user', text: prompt, at, source })
+      continue
+    }
+    if (o.type !== 'assistant') continue
+    for (const b of o.message?.content ?? []) {
+      if (b?.type === 'text' && b.text) out.push({ role: 'assistant', text: b.text, at, source })
+      else if (b?.type === 'tool_use') out.push({ role: 'tool', text: JSON.stringify(b.input ?? {}).slice(0, 2000), toolName: b.name, at, source })
+    }
+  }
+  return out
 }
 
 /** 会话文件行 → 桌面端进度事件（source=desktop）。turns 记录每个会话当前轮次 id。 */

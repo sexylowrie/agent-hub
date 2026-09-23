@@ -26,6 +26,8 @@ npm install
 npm run dev                          # 启动 Hub（默认 127.0.0.1:7788）
 npm run hub -- pair                  # 打印一次性配对码（5 分钟）
 npm run hub -- devices list          # 已配对设备；devices revoke <name|id> 吊销
+npm run web:install && npm run web:build   # 构建 PWA 到 web/dist，Hub 启动时托管在 /
+npm run web:dev                      # PWA 开发服务器（vite，/api 与 /ws 代理到 127.0.0.1:7788）
 npm test                             # 回放测试
 npm run typecheck
 npm run record -- claude             # 录一份事件流到 recordings/<vendor>/（claude | codex | cursor）

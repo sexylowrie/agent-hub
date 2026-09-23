@@ -1,4 +1,6 @@
+import { readFileSync, statSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { extname, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { Hono } from 'hono'
 import { WebSocketServer, type WebSocket } from 'ws'
@@ -19,6 +21,8 @@ export interface GatewayDeps {
   vendors: () => Record<Vendor, BinaryStatus>
   /** 从厂商存储读会话历史（目前 Cursor：IDE 消息 + CLI 续聊）；返回 undefined 表示该厂商不提供 */
   history?: (s: SessionView, limit: number) => HistoryItem[] | undefined
+  /** PWA 构建产物目录（web/dist）；不存在时只提供 API */
+  webRoot?: string
   log?: (msg: string) => void
 }
 
@@ -85,7 +89,10 @@ export function createApp(d: GatewayDeps) {
     } catch (e) {
       log(`读取会话历史失败 ${s.id}: ${(e as Error).message}`)
     }
-    return c.json({ ...s, events: store.recentEvents(s.id, 200), ...(messages ? { messages } : {}) })
+    const pendingApprovals = store
+      .pendingApprovals(s.id)
+      .map((a) => ({ id: a.id, kind: a.kind, summary: a.summary, expiresAt: a.expiresAt }))
+    return c.json({ ...s, events: store.recentEvents(s.id, 200), pendingApprovals, ...(messages ? { messages } : {}) })
   })
 
   app.get('/api/sessions/:id/events', (c) => {
@@ -94,7 +101,52 @@ export function createApp(d: GatewayDeps) {
     return c.json(store.eventsSince(id, toInt(c.req.query('sinceSeq'), 0), Math.min(toInt(c.req.query('limit'), 500)!, 2000)))
   })
 
+  app.all('/api/*', (c) => c.json({ error: 'not found' }, 404))
+  if (d.webRoot) app.get('*', serveStatic(d.webRoot))
+
   return app
+}
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.webmanifest': 'application/manifest+json',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.txt': 'text/plain; charset=utf-8',
+}
+
+/** 托管 PWA：路径限制在 root 内；无扩展名的路径回落 index.html；带 hash 的 assets 长缓存，其余每次校验 */
+function serveStatic(root: string) {
+  const base = resolve(root)
+  const read = (file: string) => {
+    try {
+      return statSync(file).isFile() ? readFileSync(file) : undefined
+    } catch {
+      return undefined
+    }
+  }
+  return (c: { req: { path: string }; body: (b: Uint8Array | null, s?: number, h?: Record<string, string>) => Response }) => {
+    let rel: string
+    try {
+      rel = decodeURIComponent(c.req.path)
+    } catch {
+      return c.body(null, 400)
+    }
+    let file = resolve(base, `.${rel}`)
+    if (file !== base && !file.startsWith(base + sep)) return c.body(null, 404)
+    let buf = rel.endsWith('/') ? undefined : read(file)
+    if (!buf && !extname(rel)) {
+      file = resolve(base, 'index.html')
+      buf = read(file)
+    }
+    if (!buf) return c.body(null, 404)
+    const cache = rel.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache'
+    return c.body(new Uint8Array(buf), 200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream', 'cache-control': cache })
+  }
 }
 
 /** 把 node:http 请求转给 hono（不引入 @hono/node-server） */
@@ -154,7 +206,9 @@ export function attachWs(server: Server, d: GatewayDeps) {
       c.subs.add(e.sessionId)
       if (c.device) deviceSubs.get(c.device.id)?.add(e.sessionId)
     }
-    if (BROADCAST_TYPES.has(e.type) || !sid || c.subs.has(sid)) sendJson(c.ws, { t: 'event', seq: p.seq, event: e })
+    // start 拿到真实会话 id 之前失败的事件挂在 pending:<turnId> 上，只发给发起的连接
+    const pendingOwn = !!sid?.startsWith('pending:') && c.startTurns.has(sid.slice('pending:'.length))
+    if (BROADCAST_TYPES.has(e.type) || !sid || c.subs.has(sid) || pendingOwn) sendJson(c.ws, { t: 'event', seq: p.seq, event: e })
   }
 
   bus.on((p) => {

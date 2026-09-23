@@ -64,8 +64,11 @@ interface SessionView {
 POST /api/pair                 { code, deviceName } → { token, deviceId }
 GET  /api/health               → { ok, version, vendors: {claude:{bin,version,ok}, ...} }
 GET  /api/sessions             ?vendor=&state=&limit=&offset=   → SessionView[]
-GET  /api/sessions/:id         ?messages=50  → SessionView + 最近 200 条 events + messages?（厂商历史，目前仅 Cursor：IDE 消息 + CLI 续聊）
+GET  /api/sessions/:id         ?messages=50  → SessionView + 最近 200 条 events + pendingApprovals + messages?（厂商历史：Claude jsonl / Codex rollout / Cursor IDE 消息 + CLI 续聊）
 GET  /api/sessions/:id/events  ?sinceSeq=&limit=
 ```
+`pendingApprovals` 元素：`{ id, kind, summary, expiresAt }`（pending 且未过期）。
+其余路径由 Hub 托管 `web/dist`（无扩展名回落 `index.html`，`/assets/*` 长缓存）。
+`start` 在拿到真实会话 id 之前失败时，事件的 sessionId 为 `pending:<turnId>`，只发给发起 start 的连接。
 `messages` 元素：`{ role: 'user'|'assistant'|'tool', text, toolName?, at?, source: 'desktop'|'cli' }`（`HistoryItem`，不进 events 表）。
 除 `/api/pair` 与 `/api/health` 外都需 `Authorization: Bearer <token>`。

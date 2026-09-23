@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ClaudeScanner, claudeState, liveSessionIds, parseHead, parseTail, progressEvents } from '../../src/scanner/claude.ts'
+import { ClaudeScanner, claudeState, historyItems, liveSessionIds, parseHead, parseTail, progressEvents } from '../../src/scanner/claude.ts'
 
 const REC = join(import.meta.dirname, '..', '..', 'recordings', 'claude')
 const CLI_ID = '68fea937-1dcd-4ca5-8a75-3d21e410b32e'
@@ -104,4 +104,19 @@ test('readProgress：首次只记 offset，之后增量产出桌面端事件', (
 test('progressEvents：真实输入开启桌面端轮次', () => {
   const evs = progressEvents(lines('session-sdk-cli-sample.jsonl'), 's', new Map())
   assert.deepEqual(evs.slice(0, 2).map((e) => e.type), ['turn.started', 'message.user'])
+})
+
+test('historyItems / history：人类输入、assistant 文本、工具调用，取最后 limit 条', () => {
+  const items = historyItems(lines('session-cli-sample.jsonl'))
+  assert.ok(items.length > 2)
+  assert.equal(items[0].role, 'user')
+  assert.match(items[0].text, /^读完 CLAUDE\.md/)
+  assert.ok(items.some((i) => i.role === 'assistant'))
+  assert.ok(items.some((i) => i.role === 'tool' && i.toolName))
+  assert.ok(items.every((i) => i.source === 'cli' && !i.text.startsWith('<')))
+  const { root } = fixture()
+  const h = scanner(root).history(CLI_ID, 3)
+  assert.equal(h.length, 3)
+  assert.deepEqual(h, items.slice(-3))
+  assert.deepEqual(scanner(root).history('no-such-id'), [])
 })

@@ -68,6 +68,7 @@ export function claudeSource(s: ClaudeScanner): ScanSource {
       const f = s.findFile(id)
       if (f) s.skipToEnd(f)
     },
+    history: (id, limit) => s.history(id, limit),
   }
 }
 
@@ -119,6 +120,7 @@ export function codexSource(s: CodexScanner, fallbackModel: string): ScanSource 
       const f = s.rolloutOf(id)
       if (f) s.skipToEnd(f)
     },
+    history: (id, limit) => s.history(id, limit),
   }
 }
 

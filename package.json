@@ -11,9 +11,12 @@
     "start": "tsx src/main.ts",
     "hub": "tsx src/main.ts",
     "test": "node --import tsx --test \"test/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p web",
     "record": "tsx scripts/record.ts",
-    "gen:codex": "bash scripts/gen-codex-types.sh"
+    "gen:codex": "bash scripts/gen-codex-types.sh",
+    "web:install": "npm --prefix web install",
+    "web:build": "npm --prefix web run build",
+    "web:dev": "npm --prefix web run dev"
   },
   "dependencies": {
     "hono": "^4.13.8",

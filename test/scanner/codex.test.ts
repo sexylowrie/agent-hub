@@ -4,7 +4,7 @@ import { appendFileSync, closeSync, copyFileSync, mkdirSync, mkdtempSync, openSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { CodexScanner, codexState, heldLockFiles, modelOverrideFor, parseRolloutTail, rolloutProgress } from '../../src/scanner/codex.ts'
+import { CodexScanner, codexState, heldLockFiles, modelOverrideFor, parseRolloutTail, rolloutHistory, rolloutProgress } from '../../src/scanner/codex.ts'
 import type { HubEvent } from '../../src/core/events.ts'
 import { recordingPath } from '../helpers.ts'
 
@@ -162,4 +162,12 @@ test('heldLockFiles：用 lsof 判断锁文件是否被进程打开', () => {
     closeSync(fd)
   }
   assert.equal(heldLockFiles([]).size, 0)
+})
+
+test('rolloutHistory：用户消息、agent 回复、工具项；跳过注入上下文', () => {
+  const items = rolloutHistory(lines('codex/rollout-sample.jsonl'), 'cli')
+  assert.deepEqual(items.map((i) => i.role), ['user', 'tool', 'assistant', 'user', 'assistant'])
+  assert.match(items[0].text, /echo hub-probe/)
+  assert.equal(items[1].toolName, 'CommandExecution')
+  assert.ok(items.every((i) => typeof i.at === 'number' && i.source === 'cli'))
 })

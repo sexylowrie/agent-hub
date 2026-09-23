@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadConfig, isCwdAllowed, probeBinaries, type BinaryStatus } from './config.ts'
 import { Bus } from './core/bus.ts'
@@ -17,6 +17,7 @@ import { createPairingCode } from './gateway/auth.ts'
 import { startGateway } from './gateway/server.ts'
 
 const VERSION: string = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf8')).version
+const WEB_ROOT = join(import.meta.dirname, '..', 'web', 'dist')
 
 function pidAlive(pid: number): boolean {
   try {
@@ -114,7 +115,9 @@ async function serve() {
     version: VERSION,
     vendors: () => vendors,
     history: (s, limit) => sources[s.vendor].history?.(s.vendorSessionId, limit),
+    webRoot: WEB_ROOT,
   })
+  if (!existsSync(join(WEB_ROOT, 'index.html'))) console.log(`[gateway] 未找到 PWA 构建产物 ${WEB_ROOT}，先 npm run web:build`)
   console.log(`[gateway] 监听 http://${cfg.listen.host}:${cfg.listen.port}  数据目录 ${cfg.dataDir}`)
 
   let closing = false
@@ -143,6 +146,7 @@ function pair() {
   console.log(`配对码：${code}`)
   console.log(`有效期至：${new Date(expiresAt).toLocaleString()}（5 分钟，一次性）`)
   console.log(`agenthub://pair?host=${host}&code=${code}`)
+  console.log(`手机浏览器打开：http://${host}/#/pair?code=${code}`)
 }
 
 function devices(args: string[]) {
