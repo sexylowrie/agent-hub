@@ -212,10 +212,67 @@ bash scripts/install-launchd.sh status | restart | uninstall
 - **只读三家存储**：`~/.claude/projects`、`~/.codex/*.sqlite`、Cursor `state.vscdb` 都以只读方式打开；续聊由官方 CLI 自己写回。
 - **只监听本机**：Gateway 绑定 `127.0.0.1`，手机经 Tailscale 私网 + HTTPS 访问，没有公网端口。
 - **设备配对**：6 位一次性配对码，5 分钟过期；设备 token 32 字节随机数，库里只存 `sha256`；可随时吊销。
-- **不抢桌面端**：会话在桌面端运行中（或 Codex 线程被 ChatGPT App 持有写锁）时拒绝续聊；同一会话同时只有一个 Hub 轮次。
+- **不抢桌面端**：会话在桌面端运行中或仍被终端 / 桌面 App 打开着（attached，或 Codex 线程被 ChatGPT App 持有写锁）时拒绝续聊；同一会话同时只有一个 Hub 轮次。
 - **目录白名单**：新建会话的 `cwd` 必须在 `allowedCwds` 内（按真实路径比较）。
 - **不碰厂商内部**：不 patch 任何二进制，不用 Chrome DevTools 协议驱动 IDE，不复用厂商的 relay / 远程控制协议。
 - **推送加密**：Web Push 按 RFC 8291 端到端加密，推送服务看不到内容。
+
+## 作为库使用
+
+agent-hub 也可以作为依赖嵌进别的 Node 服务（例如 dougan 的门面进程），复用 Scanner / Adapter / 审批 / WS 协议，而不是再起一个 Hub 进程。
+
+**安装**：以 git 依赖锁定 tag 引用，升级就是改 tag：
+
+```json
+{ "dependencies": { "agent-hub": "github:sexylowrie/agent-hub#v0.2.0" } }
+```
+
+- 包里是 TypeScript 源码（`exports` 指向 `src/index.ts`），**不做构建**。Node 不会对 `node_modules` 里的 `.ts` 做类型擦除，所以消费方要自带运行时：`node --import tsx your-app.ts`（`tsx` 在本仓库只是 devDependency，不会随依赖装上）。
+- 需要 Node 24+（用内置 `node:sqlite`）；运行时依赖只有 `hono`、`ws`、`zod`。
+- 只能从包入口 import（`import { startHub } from 'agent-hub'`），不支持深路径。
+
+**最小嵌入**：装配交给 `startHub()`，REST 挂到自己的前缀下，WS 与宿主共用一个 server，鉴权先认宿主自己的凭据再回落到设备 token：
+
+```ts
+import { createServer } from 'node:http'
+import { Hono } from 'hono'
+import { startHub, createApp, attachWs, authenticate, type GatewayDeps } from 'agent-hub'
+
+const rt = await startHub({
+  dataDir: '/path/to/data',                       // hub.sqlite 放这里
+  binaries: { claude: 'claude', codex: '/Applications/ChatGPT.app/Contents/Resources/codex', cursor: 'agent' },
+  codexModel: 'gpt-5.5',
+  allowedCwds: () => readRootsFromMySettings(),   // 传函数则每次校验都重新取
+  scanner: { attachedQuietMs: 60_000 },           // 其余缺省与 hub.config.json 的默认一致
+})
+
+const deps: GatewayDeps = {
+  store: rt.store, bus: rt.bus, hub: rt.hub, version: '0.2.0',
+  vendors: rt.vendors, history: rt.history,
+  allowedCwds: () => readRootsFromMySettings(),
+  // 先认宿主的凭据；认不出再按 agent-hub 的设备 token 查库。只返回你能验证的，未命中一律 undefined
+  authenticate: (token) => myMachineAuth(token) ?? authenticate(rt.store, token),
+}
+const app = new Hono()
+app.route('/hub', createApp(deps))                // → /hub/api/sessions …
+const server = createServer(/* 把请求交给 app.fetch */)
+attachWs(server, deps, { wsPath: '/hub/ws', destroyUnmatched: false })  // 同 server 上还有别的 WS 时不要断开它们
+// 退出时：await rt.stop()
+```
+
+**嵌入方常用的能力**（完整清单见 `src/index.ts`）：
+
+| 能力 | 接口 |
+|---|---|
+| 会话列表 / 详情 / 事件 | `rt.store.listSessions()`、`getSession()`、`eventsSince()`；实时事件 `rt.bus.on()` |
+| 续聊 / 新建 / 中断 / 审批 | `hub.send()`、`hub.start()`、`hub.interrupt()`、`hub.approve()`，返回 `AckResult` |
+| 附着但空闲的会话 | `state: 'attached'` + `holder: { kind: 'cli' \| 'gui', pid?, tmux?: { target } }`；`hub.send()` 回 `code: 'ATTACHED'` 并带 `holder`，由嵌入方给出显式动作 |
+| fork | `hub.fork(sessionId, text)`：只对 idle / attached 放行，新会话 id 经 `session.upsert` 带回；Codex / Cursor 回 `FORK_UNSUPPORTED` |
+| 待审批 / 进行中的轮次 | `hub.listPendingApprovals()`、`hub.turnOf(sessionId)` |
+| 设备 | `createPairingCode()`、`pairDevice()`、`store.listDevices()`、`store.renameDevice()`、`store.revokeDevice()` |
+| Web Push | `WebPush`、`loadVapid(dataDir)`、`attachPushNotifier(bus, store, push)` |
+
+嵌入不改变安全约束：三家存储仍只读，权限模式仍取最保守（放宽只能来自逐次显式的 `force`），`cwd` 白名单按真实路径比较，子进程一律 `spawn(bin, args)`。
 
 ## 开发
 
