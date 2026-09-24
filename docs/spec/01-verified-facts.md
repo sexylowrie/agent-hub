@@ -114,5 +114,7 @@
 - **tsx CLI 是两个进程**：`tsx x.ts` 先起一个 node 再 spawn 真正跑代码的 node。launchd 下若用 tsx CLI，`kill -9` 只杀掉外层，内层继续占着端口，新实例起不来。plist 里直接 `node --import tsx src/main.ts` 单进程运行。
 - **launchd**：`KeepAlive=true` + `ThrottleInterval=1`，`kill -9` 后 1.6 秒恢复服务（health 可用）；`launchctl kickstart -k` 正常重启。launchd 的默认 PATH 找不到 `claude`/`agent`（在 `~/.local/bin`），plist 写入安装时的 PATH。
 - **caffeinate**：`caffeinate -s -w <hub pid>` 在 Hub 被 kill -9 后自动退出，不会残留断言。`-s` 只在接电源时生效。合盖接电 30 分钟后仍可访问**未实测**（需要人合盖）。
-- **Web Push 加密**：`encryptPayload` 用 RFC 8291 附录 A 的输入，输出与 RFC 结果逐字节一致；VAPID JWT 用公钥验签通过。Chrome DevTools 驱动的浏览器 `Notification.requestPermission()` 直接返回 denied，拿不到订阅，**真实推送服务（FCM / Apple）尚未验证**。
-- **Tailscale**：本机原先没装；`brew install --cask tailscale-app` 的安装器需要 sudo 密码，得用户在终端自己跑。
+- **Web Push 加密**：`encryptPayload` 用 RFC 8291 附录 A 的输入，输出与 RFC 结果逐字节一致；VAPID JWT 用公钥验签通过。Chrome DevTools 驱动的浏览器 `Notification.requestPermission()` 直接返回 denied，拿不到订阅；改用最小接收端直连 **Mozilla autopush**（`wss://push.services.mozilla.com`，hello → register 带 VAPID 公钥 → 拿到 endpoint 登记到 Hub）验证：Hub 推送被接受（201），收到的 aes128gcm 消息解密正确；一轮需要审批的 Claude 续聊依次收到「需要审批」「完成」两条。**Apple 推送服务（iOS 主屏幕 PWA）尚未验证**。
+- **Tailscale**：本机原先没装；`brew install --cask tailscale-app` 的安装器需要 sudo 密码，Claude Code 的 `!` 命令也没有 TTY，一样失败；下载官方 pkg 用图形安装器装成功。tailnet 默认没开 Serve，首次 `tailscale serve` 给出后台开启链接（浏览器必须登录与本机同一个 Tailscale 账号，否则 404 node not found）。首次 HTTPS 请求约 27 秒（签发证书），之后正常。
+- **经 tailscale serve 的 HTTPS 验收**：`https://<mac>.<tailnet>.ts.net` 上 PWA、REST、WS 都通；在 Claude 测试会话里经此地址续聊 → 审批允许 → 写文件 → turn.done success。iPhone 已配对并从手机续聊过 Cursor 会话。
+- **防睡眠断言**：接电源时 `pmset -g assertions` 可见 `caffeinate -s -w <hub pid>` 持有 PreventSystemSleep（"on behalf of Process ID <hub pid>"）。
