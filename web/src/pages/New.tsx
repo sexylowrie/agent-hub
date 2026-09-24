@@ -66,7 +66,7 @@ export function New() {
     <div class="page">
       <Navbar>
         <div class="nav-row">
-          <button class="back" onClick={() => navigate('#/')}>
+          <button class="back to-list" onClick={() => navigate('#/')}>
             <IconBack size={22} />
             会话
           </button>

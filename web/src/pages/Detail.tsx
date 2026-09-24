@@ -7,7 +7,7 @@ import { eventBlocks, historyBlocks, hubTurnOpen, splitAt, type Block } from '..
 import { STATE_REASON, VENDOR_LABEL, navigate, shortCwd, summarize } from '../util.ts'
 import { renderMarkdown } from '../markdown.ts'
 import { toast } from '../toast.ts'
-import { Navbar, OriginTag, Switch } from '../ui.tsx'
+import { Navbar, OriginTag, Switch, useWide } from '../ui.tsx'
 import { IconBack, IconCheck, IconDown, IconFile, IconGlobe, IconSearch, IconSend, IconShield, IconStop, IconTerminal, IconTool, IconX } from '../icons.tsx'
 
 function useNow(active: boolean) {
@@ -194,6 +194,7 @@ export function Detail({ id }: { id: string }) {
   const [text, setText] = useState('')
   const [force, setForce] = useState(false)
   const ta = useRef<HTMLTextAreaElement>(null)
+  const wide = useWide()
   const [sending, setSending] = useState(false)
   const stick = useRef(true)
   const [atBottom, setAtBottom] = useState(true)
@@ -280,7 +281,7 @@ export function Detail({ id }: { id: string }) {
       <div class="page">
         <Navbar compact>
           <div class="nav-row">
-            <button class="back" onClick={() => navigate('#/')}>
+            <button class="back to-list" onClick={() => navigate('#/')}>
               <IconBack size={22} />
               会话
             </button>
@@ -321,7 +322,7 @@ export function Detail({ id }: { id: string }) {
       <Navbar compact>
         <div class="nav-row">
           <div class="nav-side" style={{ justifyContent: 'flex-start' }}>
-            <button class="back" onClick={() => navigate('#/')} aria-label="返回会话列表">
+            <button class="back to-list" onClick={() => navigate('#/')} aria-label="返回会话列表">
               <IconBack size={22} />
             </button>
           </div>
@@ -375,12 +376,19 @@ export function Detail({ id }: { id: string }) {
             rows={1}
             value={text}
             disabled={!!blockedReason}
-            placeholder={blockedReason ? '暂不可续聊' : '接着说…'}
+            placeholder={blockedReason ? '暂不可续聊' : wide ? '接着说…（Enter 发送，Shift+Enter 换行）' : '接着说…'}
             onInput={(e) => {
               const el = e.target as HTMLTextAreaElement
               setText(el.value)
               el.style.height = 'auto'
               el.style.height = `${Math.min(el.scrollHeight, 160)}px`
+            }}
+            onKeyDown={(e) => {
+              // 电脑端（精确指针）Enter 发送、Shift+Enter 换行；输入法选词中的 Enter 不算；手机上 Enter 始终换行
+              if (e.key !== 'Enter' || e.shiftKey || e.isComposing || e.keyCode === 229) return
+              if (!window.matchMedia('(pointer: fine)').matches) return
+              e.preventDefault()
+              ;(e.currentTarget as HTMLTextAreaElement).form?.requestSubmit()
             }}
           />
           {canInterrupt ? (

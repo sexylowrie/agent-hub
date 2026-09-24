@@ -7,7 +7,7 @@ import { List } from './pages/List.tsx'
 import { New } from './pages/New.tsx'
 import { Pair } from './pages/Pair.tsx'
 import { Settings } from './pages/Settings.tsx'
-import { Toasts } from './ui.tsx'
+import { EmptyPane, Toasts, useWide } from './ui.tsx'
 import './theme.ts'
 import './style.css'
 
@@ -23,8 +23,23 @@ function parse(hash: string): Route {
   return { name: 'list' }
 }
 
+function Pane({ route }: { route: Exclude<Route, { name: 'pair' }> }) {
+  switch (route.name) {
+    case 'detail':
+      // key：切换会话时整页重建，避免上一个会话的状态残留
+      return <Detail key={route.id} id={route.id} />
+    case 'new':
+      return <New />
+    case 'settings':
+      return <Settings />
+    default:
+      return null
+  }
+}
+
 function App() {
   const [route, setRoute] = useState(() => parse(location.hash))
+  const wide = useWide()
   useEffect(() => {
     const on = () => {
       setRoute(parse(location.hash))
@@ -33,20 +48,32 @@ function App() {
     window.addEventListener('hashchange', on)
     return () => window.removeEventListener('hashchange', on)
   }, [])
+  if (route.name === 'pair') {
+    return (
+      <>
+        <Toasts />
+        <Pair code={route.code} />
+      </>
+    )
+  }
+  // 电脑端：左栏常驻会话列表，右栏显示详情 / 新建 / 设置；手机端单栏按路由切页
+  if (wide) {
+    return (
+      <>
+        <Toasts />
+        <div class="split">
+          <aside class="sidebar">
+            <List selected={route.name === 'detail' ? route.id : undefined} />
+          </aside>
+          <main class="main">{route.name === 'list' ? <EmptyPane /> : <Pane route={route} />}</main>
+        </div>
+      </>
+    )
+  }
   return (
     <>
       <Toasts />
-      {route.name === 'pair' ? (
-        <Pair code={route.code} />
-      ) : route.name === 'detail' ? (
-        <Detail id={route.id} />
-      ) : route.name === 'new' ? (
-        <New />
-      ) : route.name === 'settings' ? (
-        <Settings />
-      ) : (
-        <List />
-      )}
+      {route.name === 'list' ? <List /> : <Pane route={route} />}
     </>
   )
 }

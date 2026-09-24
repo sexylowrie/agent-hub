@@ -36,10 +36,17 @@ function loadOpen(): Set<GroupKey> | undefined {
   }
 }
 
-function Row({ s }: { s: SessionView }) {
+function Row({ s, selected }: { s: SessionView; selected: boolean }) {
   const b = badgeOf(s)
   return (
-    <div class="row" role="link" tabIndex={0} onClick={() => navigate(`#/s/${encodeURIComponent(s.id)}`)}>
+    <div
+      class={`row ${selected ? 'on' : ''}`}
+      role="link"
+      tabIndex={0}
+      aria-current={selected ? 'page' : undefined}
+      onClick={() => navigate(`#/s/${encodeURIComponent(s.id)}`)}
+      onKeyDown={(e) => e.key === 'Enter' && navigate(`#/s/${encodeURIComponent(s.id)}`)}
+    >
       <Avatar s={s} />
       <div class="r-main">
         <div class="r-top">
@@ -79,7 +86,8 @@ function Skeleton() {
   )
 }
 
-export function List() {
+/** selected：电脑端分栏时右侧正在看的会话，列表里高亮 */
+export function List({ selected }: { selected?: string } = {}) {
   const map = useStore(sessions)
   const theme = useStore(themePref)
   const [vendor, setVendor] = useState<Vendor | 'all'>(() => (localStorage.getItem(VENDOR_KEY) as Vendor | 'all' | null) ?? 'all')
@@ -174,7 +182,7 @@ export function List() {
                     {items.length === 0 ? (
                       <div class="g-empty">没有会话</div>
                     ) : (
-                      shown.map((s) => <Row key={s.id} s={s} />)
+                      shown.map((s) => <Row key={s.id} s={s} selected={s.id === selected} />)
                     )}
                     {items.length > PAGE && (
                       <button class="more" onClick={() => toggleAll(key)}>

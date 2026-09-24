@@ -12,6 +12,12 @@ Vite + Preact + TypeScript；`web/` 独立 package；构建产物由 Hub 用 hon
 - 加载用骨架屏；发送 / 审批 / 中断失败用顶部 toast。
 - 构建注意：`vite.config.ts` 写了 `build.cssTarget`，样式里只写标准 `backdrop-filter`，由压缩器补 `-webkit-`（两种都手写时压缩器会只留一个，Chrome 上毛玻璃失效，实测）。
 
+## 手机端 / 电脑端适配（断点 900px，`web/src/ui.tsx` 的 `WIDE_QUERY` 与 style.css 保持一致）
+- **手机（< 900px）**：单栏，按路由切页。输入控件字号 16px（iOS 小于 16px 聚焦会放大页面）；图标按钮 40px、发送键 36px；导航栏左右留 `safe-area-inset`（横屏刘海）；Enter 始终换行。
+- **电脑（≥ 900px）**：左右分栏。左栏常驻会话列表（固定定位、独立滚动，宽 `clamp(340px, 30vw, 420px)`），右栏按路由显示详情 / 新建 / 设置，没有选中时显示占位；当前会话在左栏高亮；右栏内容最宽 820px 居中；"返回会话列表"按钮隐藏（`.to-list`）。
+- 电脑端（`pointer: fine`）Enter 发送、Shift+Enter 换行；输入法选词中的 Enter（`isComposing` / keyCode 229）不发送。
+- 悬停效果只在 `(hover: hover) and (pointer: fine)` 下生效，避免手机点完残留 :hover；键盘焦点有 `focus-visible` 描边，会话行可 Enter 打开。
+
 ## 页面
 1. **配对页**：PWA 由 Hub 自己托管，host 即 `location.host`（只读显示）；输入 6 位码与设备名 → 存 token 到 localStorage。`npm run hub -- pair` 会打印 `http://<host>/#/pair?code=<code>`，打开即预填。
 2. **会话列表**（设计稿 `docs/mockups/session-list-grouped.html` 方案 C，2026-09-24 定稿）：

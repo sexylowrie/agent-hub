@@ -1,5 +1,5 @@
 import type { ComponentChildren } from 'preact'
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import { useStore } from './store.ts'
 import { toasts } from './toast.ts'
 import type { SessionView } from './types.ts'
@@ -8,21 +8,52 @@ import { ORIGIN_TAG } from './util.ts'
 
 export const AVATAR: Record<SessionView['vendor'], string> = { claude: 'C', codex: 'Cx', cursor: 'Cu' }
 
-/** 页面滚动离开顶部（导航栏出分隔线） */
-export function useScrolled(threshold = 4) {
-  const [scrolled, setScrolled] = useState(false)
+/** 电脑端分栏的断点，与 style.css 里的 @media (min-width: 900px) 一致 */
+export const WIDE_QUERY = '(min-width: 900px)'
+
+export function useWide(): boolean {
+  const [wide, setWide] = useState(() => window.matchMedia(WIDE_QUERY).matches)
   useEffect(() => {
-    const on = () => setScrolled(window.scrollY > threshold)
-    on()
-    window.addEventListener('scroll', on, { passive: true })
-    return () => window.removeEventListener('scroll', on)
-  }, [threshold])
-  return scrolled
+    const mq = window.matchMedia(WIDE_QUERY)
+    const on = () => setWide(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  return wide
 }
 
+/** 导航栏：滚动离开顶部时出分隔线。电脑端左栏是独立滚动容器（.sidebar），其余跟随页面滚动 */
 export function Navbar({ children, compact }: { children: ComponentChildren; compact?: boolean }) {
-  const scrolled = useScrolled()
-  return <header class={`navbar ${scrolled ? 'scrolled' : ''} ${compact ? 'compact' : ''}`}>{children}</header>
+  const ref = useRef<HTMLElement>(null)
+  const [scrolled, setScrolled] = useState(false)
+  useEffect(() => {
+    const box = ref.current?.closest('.sidebar') as HTMLElement | null
+    const on = () => setScrolled((box ? box.scrollTop : window.scrollY) > 4)
+    const target: HTMLElement | Window = box ?? window
+    on()
+    target.addEventListener('scroll', on, { passive: true })
+    return () => target.removeEventListener('scroll', on)
+  }, [])
+  return (
+    <header ref={ref} class={`navbar ${scrolled ? 'scrolled' : ''} ${compact ? 'compact' : ''}`}>
+      {children}
+    </header>
+  )
+}
+
+/** 电脑端右栏没有选中会话时的占位 */
+export function EmptyPane() {
+  return (
+    <div class="pane-empty">
+      <div class="logo" aria-hidden="true">
+        <i style={{ height: '26px', background: '#e08a64' }} />
+        <i style={{ height: '20px', background: '#19b58c' }} />
+        <i style={{ height: '14px', background: '#9aa6ff' }} />
+      </div>
+      <h2>选择一个会话</h2>
+      <p>从左侧列表打开会话查看进度、续聊或处理审批，或者新建一个。</p>
+    </div>
+  )
 }
 
 export function StatusPill() {
