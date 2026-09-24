@@ -17,6 +17,8 @@ const ConfigSchema = z.object({
     recentDays: z.number().positive(),
     reconcileSeconds: z.number().positive(),
     idleQuietMs: VendorNums,
+    /** 有进程持有会话但已安静多久算 attached（Claude / Codex） */
+    attachedQuietMs: z.number().nonnegative().default(60_000),
   }),
   approval: z.object({ expireSeconds: z.number().positive() }),
   /** 手机访问用的地址（如 tailscale serve 的 https://<mac>.<tailnet>.ts.net），只用于打印配对链接 */

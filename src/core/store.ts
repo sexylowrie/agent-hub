@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   last_event_seq INTEGER,
   vendor_updated_at INTEGER,
   updated_at INTEGER NOT NULL,
+  holder TEXT,
   UNIQUE(vendor, vendor_session_id)
 );
 CREATE TABLE IF NOT EXISTS events (
@@ -124,6 +125,7 @@ function toView(r: Row): SessionView {
   if (r.unresumable_reason) v.unresumableReason = r.unresumable_reason
   if (r.last_message_preview) v.lastMessagePreview = r.last_message_preview
   if (r.vendor_updated_at != null) v.vendorUpdatedAt = r.vendor_updated_at
+  if (r.holder) v.holder = JSON.parse(r.holder)
   return v
 }
 
@@ -149,6 +151,13 @@ export class Store {
     this.db = new DatabaseSync(path)
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=3000;')
     this.db.exec(SCHEMA)
+    this.migrate()
+  }
+
+  /** 旧库补列（CREATE TABLE IF NOT EXISTS 不会给已有表加列） */
+  private migrate() {
+    const cols = new Set((this.db.prepare('PRAGMA table_info(sessions)').all() as Row[]).map((r) => r.name))
+    if (!cols.has('holder')) this.db.exec('ALTER TABLE sessions ADD COLUMN holder TEXT')
   }
 
   static open(dataDir: string): Store {
@@ -165,16 +174,17 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO sessions (id, vendor, vendor_session_id, cwd, title, origin, state, resumable, unresumable_reason,
-           archived, last_message_preview, vendor_updated_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+           archived, last_message_preview, vendor_updated_at, updated_at, holder)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET cwd=excluded.cwd, title=excluded.title, origin=excluded.origin, state=excluded.state,
            resumable=excluded.resumable, unresumable_reason=excluded.unresumable_reason, archived=excluded.archived,
            last_message_preview=excluded.last_message_preview, vendor_updated_at=excluded.vendor_updated_at,
-           updated_at=excluded.updated_at`,
+           updated_at=excluded.updated_at, holder=excluded.holder`,
       )
       .run(
         v.id, v.vendor, v.vendorSessionId, v.cwd, v.title, v.origin, v.state, v.resumable ? 1 : 0,
         v.unresumableReason ?? null, v.archived ? 1 : 0, v.lastMessagePreview ?? null, v.vendorUpdatedAt ?? null, v.updatedAt,
+        v.holder ? JSON.stringify(v.holder) : null,
       )
   }
 

@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type { AgentAdapter, ApprovalRequest } from '../adapters/types.ts'
 import type { Bus } from './bus.ts'
-import type { Decision, HubEvent, SessionState, SessionView, Vendor } from './events.ts'
+import type { Decision, Holder, HubEvent, SessionState, SessionView, Vendor } from './events.ts'
 import type { Store } from './store.ts'
 
-export type AckResult = { ok: true; data?: unknown } | { ok: false; code: string; message: string }
+/** 失败时 code=ATTACHED 会带上 holder（会话被谁开着），供上层给出 inject / takeover / fork 等显式动作 */
+export type AckResult = { ok: true; data?: unknown } | { ok: false; code: string; message: string; holder?: Holder }
 
 export interface HubOpts {
   store: Store
@@ -41,7 +42,8 @@ function sameView(a: SessionView, b: SessionView): boolean {
     a.unresumableReason === b.unresumableReason &&
     a.archived === b.archived &&
     a.lastMessagePreview === b.lastMessagePreview &&
-    a.vendorUpdatedAt === b.vendorUpdatedAt
+    a.vendorUpdatedAt === b.vendorUpdatedAt &&
+    JSON.stringify(a.holder) === JSON.stringify(b.holder)
   )
 }
 
@@ -141,6 +143,10 @@ export class Hub {
       this.applyScan([fresh])
       s = this.store.getSession(sessionId)!
     }
+    if (s.state === 'attached') {
+      const where = s.holder?.kind === 'gui' ? '桌面 App' : '终端'
+      return { ...this.reject('ATTACHED', `会话在${where}里开着（已安静），关掉后才能在这里续聊`), holder: s.holder }
+    }
     if (s.state !== 'idle') return this.reject('SESSION_BUSY', `会话非空闲（state=${s.state}），桌面端可能仍打开着该会话`)
     const adapter = this.o.adapters[s.vendor]
     if (!adapter) return this.reject('VENDOR_UNSUPPORTED', `暂不支持 ${s.vendor}`)
@@ -183,7 +189,7 @@ export class Hub {
     return { ok: true, data: { turnId: f.turnId } }
   }
 
-  private reject(code: string, message: string): AckResult {
+  private reject(code: string, message: string): Extract<AckResult, { ok: false }> {
     this.log(`拒绝 ${code}: ${message}`)
     return { ok: false, code, message }
   }

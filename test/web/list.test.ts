@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { SessionView } from '../../src/core/events.ts'
-import { defaultOpenGroup, groupOf, groupSessions } from '../../web/src/util.ts'
+import { badgeOf, defaultOpenGroup, groupOf, groupSessions } from '../../web/src/util.ts'
 
 const s = (id: string, patch: Partial<SessionView> = {}): SessionView => ({
   id, vendor: 'claude', vendorSessionId: id, cwd: '/tmp', title: id, origin: 'cli',
@@ -12,6 +12,7 @@ test('groupOf：进行中的状态优先；可续聊要求空闲、可续接、�
   assert.equal(groupOf(s('a', { state: 'awaiting_approval', archived: true })), 'awaiting')
   assert.equal(groupOf(s('b', { state: 'running', resumable: false })), 'running')
   assert.equal(groupOf(s('c', { state: 'error' })), 'error')
+  assert.equal(groupOf(s('t', { state: 'attached', holder: { kind: 'cli', pid: 1 } })), 'running')
   assert.equal(groupOf(s('d')), 'idle')
   assert.equal(groupOf(s('e', { archived: true })), 'other')
   assert.equal(groupOf(s('f', { resumable: false })), 'other')
@@ -24,4 +25,9 @@ test('groupSessions 按最近更新倒序；defaultOpenGroup 取第一个有会�
   assert.equal(defaultOpenGroup(g), 'idle')
   assert.equal(defaultOpenGroup(groupSessions([s('r', { state: 'running' }), s('a', { state: 'awaiting_approval' })])), 'awaiting')
   assert.equal(defaultOpenGroup(groupSessions([])), undefined)
+})
+
+test('badgeOf：attached 按持有者区分终端与 App', () => {
+  assert.deepEqual(badgeOf(s('t', { state: 'attached', holder: { kind: 'cli', pid: 1 } })), { label: '终端开着', cls: 'mute' })
+  assert.deepEqual(badgeOf(s('g', { state: 'attached', holder: { kind: 'gui' } })), { label: 'App 开着', cls: 'mute' })
 })

@@ -12,8 +12,11 @@
 - preview：最后一条 assistant 文本。
 - 进度：记录每个文件的已读 offset，增量解析新行；`assistant` → message.delta，`tool_use/tool_result` → tool.call。
 - 空闲：`~/.claude/sessions/*.json` 里**没有**该 sessionId 的活 pid，且最后写入距今 > `idleQuietMs.claude`。会话 jsonl 没有 `result` 行，不能靠它判断。
-- **只要有活 pid 就一律不可续聊**（state=running），哪怕文件很久没写：这意味着终端或 Desktop 还开着这个会话，手机再 `--resume` 会两个进程写同一个 jsonl。不读 `messagingSocketPath`、`status`、`notify_idle` 等未文档化字段。
-- （M1 之后）可用"pid 活 + 文件静默超过阈值"细分为 `attached`（桌面端打开中）与 `running`（正在跑），两者都不可续聊，只是文案不同。M0 不做。
+- **只要有活 pid 就一律不可续聊**，哪怕文件很久没写：这意味着终端或 Desktop 还开着这个会话，手机再 `--resume` 会两个进程写同一个 jsonl。不读 `messagingSocketPath`、`status`、`notify_idle` 等未文档化字段。
+- 有活 pid 时细分 `attached` 与 `running`（两者都不可续聊，只是文案与上层可选动作不同），宁可误判为 running：
+  - `attached`：最后一轮**已收尾**（尾部块里最后一条人类输入之后有 `system/turn_duration` 或 `[Request interrupted` 标记）**且**文件静默 > `attachedQuietMs`（默认 60s）。
+  - 其余（最近有写入、最后一轮未收尾、尾部块里找不到输入与收尾标记）→ `running`。未收尾这一条防的是长时间工具调用期间文件不写、被误判为空闲。
+  - `holder`：登记文件 `entrypoint==='claude-desktop'`（没有则看会话首行）→ `{kind:'gui', pid}`；否则 `{kind:'cli', pid}`，并查 tmux：`tmux list-panes -a` 里 `pane_pid` 是该 pid 的祖先、且 `pane_current_command ∈ {claude, node, bun}` 的 pane → `tmux:{target}`（`scanner/tmux.ts`）。没装 tmux / 没有 server / 不在 pane 里就不带。
 - title：优先最后一条 `ai-title.aiTitle`，否则首条非 meta、非命令包装的用户消息前 60 字。
 - `sdk-cli` 过滤例外：Hub 自己新建（origin=hub）的会话照常纳入。
 - origin：`claude-desktop`→desktop，`cli`→cli，Hub 自己起的→hub（Core 标记）。
@@ -25,13 +28,14 @@
 - origin：`originator='agent-hub'`→hub，`source='vscode'`→desktop，其余→cli。
 - 进度：tail `rollout_path`，格式见 `recordings/codex/rollout-sample.jsonl`：`task_started`→turn.started，`item_completed{UserMessage}`→message.user，`item_completed{AgentMessage}`→message.delta，`function_call/custom_tool_call`→tool.call started，`item_completed{CommandExecution|FileChange|McpToolCall|WebSearch}`→tool.call done，`task_complete`→turn.done success，`turn_aborted`→turn.done interrupted。
 - 空闲：以下任一即 running，否则 idle。
-  - 线程写锁 `~/.codex/thread-writer-locks/<id>.lock` 被进程打开（`lsof`）：GUI 正打开着该线程。
+  - 线程写锁 `~/.codex/thread-writer-locks/<id>.lock` 被进程打开（`lsof -Fpn`）：GUI 正打开着该线程。其中最后一轮已收尾且 rollout 静默 > `attachedQuietMs`（默认 60s）的记为 `attached`（同样不可续聊），`holder.pid` 为持有锁的进程；可执行文件在 `.app/` 包里（ChatGPT App 的 app-server）或查不到 → `kind:'gui'`，否则 `kind:'cli'`。
   - rollout 最后写入距今 ≤ `idleQuietMs.codex`。
   - 最后一轮未收尾（`task_started` 之后没有 `task_complete/turn_aborted`），且本机有活的 codex 进程；没有 codex 进程时视为崩溃遗留。
 - 监听：递归监听 `~/.codex`，只处理 `state_5.sqlite*`（全量重扫）、`sessions/`/`archived_sessions/` 下的 rollout（增量进度 + 复查该线程）、`thread-writer-locks/*.lock`（复查该线程）。
 - archived：透传，UI 显示"已归档"，续聊前 Adapter 处理 unarchive。
 
 ## Cursor（scanner/cursor.ts）
+- **不产生** `attached`：IDE 打开着但未生成时 CLI 可以直接续聊（实测 id 不变）。
 - 只读打开 `state.vscdb`。列表：`SELECT <json_extract 取的小字段> FROM cursorDiskKV WHERE key >= 'composerData:' AND key < 'composerData;' AND lastUpdatedAt >= <recentDays>`，不整条解析 value。**禁止** `LIKE '%xxx%'` 扫 value。
 - 没有任何 header 且 `~/.cursor/chats` 里也没有消息的 composer（空草稿）不列出。
 - 列表 = IDE composer ∪ `~/.cursor/chats/*/<id>/`（纯 CLI 会话，含 Hub start 建的）。origin：IDE 有该 composer→desktop，只在 chats→cli，Hub 登记的→hub。

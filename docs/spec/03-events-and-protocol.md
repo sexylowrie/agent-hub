@@ -2,7 +2,8 @@
 
 ## HubEvent（src/core/events.ts，用 zod 定义并导出类型）
 ```ts
-type SessionState = 'idle' | 'running' | 'awaiting_approval' | 'error' | 'unknown'
+type SessionState = 'idle' | 'running' | 'attached' | 'awaiting_approval' | 'error' | 'unknown'
+// attached：有进程持有会话（终端 / 桌面 App 开着）但已安静；与 running 一样不可续聊，判定见 05-scanner.md
 type Vendor = 'claude' | 'codex' | 'cursor'
 
 type HubEvent =
@@ -20,7 +21,8 @@ type HubEvent =
 
 interface SessionView {
   id; vendor; vendorSessionId; cwd; title; origin; state; resumable; unresumableReason?;
-  archived; lastMessagePreview?; vendorUpdatedAt?; updatedAt
+  archived; lastMessagePreview?; vendorUpdatedAt?; updatedAt;
+  holder?: { kind: 'cli' | 'gui'; pid?: number; tmux?: { target: string } }   // 只在 state=attached 时出现
 }
 ```
 
@@ -53,10 +55,11 @@ interface SessionView {
 { t: 'snapshot', sessions: SessionView[], seq: number }   // hello 后立刻
 { t: 'event', seq, event: HubEvent }
 { t: 'ack', reqId, ok: true, data?: unknown }
-{ t: 'ack', reqId, ok: false, code, message }              // 如 SESSION_BUSY / NOT_RESUMABLE / CWD_NOT_ALLOWED
+{ t: 'ack', reqId, ok: false, code, message, holder? }     // 如 SESSION_BUSY / ATTACHED / NOT_RESUMABLE / CWD_NOT_ALLOWED
 { t: 'pong' }
 ```
 - hello 校验失败直接关闭连接，code 4401。
+- `send` 对 `attached` 会话返回 `code:'ATTACHED'` 并带 `holder`（谁开着这条会话）；对 `running` 等其余非空闲状态仍是 `SESSION_BUSY`。
 - `sinceSeq` 存在时，snapshot 之后按序补发 `events`（只补该设备订阅过的会话 + 全部 approval.*）。
 
 ## REST

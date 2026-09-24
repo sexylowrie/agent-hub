@@ -68,11 +68,11 @@ async function serve() {
   let hub: Hub
   const isHub = (vendor: Vendor) => (id: string) => hub.isHubSession(sessionKey(vendor, id))
   const codex = codexSource(
-    new CodexScanner({ recentDays: cfg.scanner.recentDays, quietMs: cfg.scanner.idleQuietMs.codex, isHubSession: isHub('codex') }),
+    new CodexScanner({ recentDays: cfg.scanner.recentDays, quietMs: cfg.scanner.idleQuietMs.codex, attachedQuietMs: cfg.scanner.attachedQuietMs, isHubSession: isHub('codex') }),
     cfg.codex.model,
   )
   const sources: Record<Vendor, ScanSource> = {
-    claude: claudeSource(new ClaudeScanner({ recentDays: cfg.scanner.recentDays, quietMs: cfg.scanner.idleQuietMs.claude, isHubSession: isHub('claude') })),
+    claude: claudeSource(new ClaudeScanner({ recentDays: cfg.scanner.recentDays, quietMs: cfg.scanner.idleQuietMs.claude, attachedQuietMs: cfg.scanner.attachedQuietMs, isHubSession: isHub('claude') })),
     codex,
     cursor: cursorSource(new CursorScanner({ recentDays: cfg.scanner.recentDays, quietMs: cfg.scanner.idleQuietMs.cursor, isHubSession: isHub('cursor') })),
   }

@@ -3,8 +3,17 @@ import { z } from 'zod'
 export const Vendor = z.enum(['claude', 'codex', 'cursor'])
 export type Vendor = z.infer<typeof Vendor>
 
-export const SessionState = z.enum(['idle', 'running', 'awaiting_approval', 'error', 'unknown'])
+/** attached：有进程持有会话（终端 / 桌面 App 开着）但已安静；与 running 一样不可续聊，只是文案与可选动作不同 */
+export const SessionState = z.enum(['idle', 'running', 'attached', 'awaiting_approval', 'error', 'unknown'])
 export type SessionState = z.infer<typeof SessionState>
+
+/** attached 会话的持有者：cli=终端里的进程，gui=桌面 App；tmux 为 Claude CLI 所在的 pane */
+export const Holder = z.object({
+  kind: z.enum(['cli', 'gui']),
+  pid: z.number().int().optional(),
+  tmux: z.object({ target: z.string() }).optional(),
+})
+export type Holder = z.infer<typeof Holder>
 
 export const Origin = z.enum(['desktop', 'cli', 'hub'])
 export type Origin = z.infer<typeof Origin>
@@ -29,6 +38,8 @@ export const SessionView = z.object({
   lastMessagePreview: z.string().optional(),
   vendorUpdatedAt: z.number().optional(),
   updatedAt: z.number(),
+  /** 只在 state=attached 时出现 */
+  holder: Holder.optional(),
 })
 export type SessionView = z.infer<typeof SessionView>
 

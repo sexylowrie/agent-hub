@@ -14,6 +14,10 @@ import { createPairingCode, pairDevice, authenticate, hashToken } from '../../sr
 import { startGateway } from '../../src/gateway/server.ts'
 import type { HubConfig } from '../../src/config.ts'
 import { stdoutLines } from '../helpers.ts'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 
 const SID = 'f2301e94-69c5-4852-b821-0a015e847cb6'
 
@@ -98,6 +102,41 @@ test('非 idle / 不可续聊 / 进行中 → 拒绝', async () => {
   store.insertTurn('t-other', `claude:${SID}`)
   assert.deepEqual(pick(hub.send(`claude:${SID}`, 'x')), { ok: false, code: 'SESSION_BUSY' })
   assert.deepEqual(pick(hub.start('claude', '/etc', 'x')), { ok: false, code: 'CWD_NOT_ALLOWED' })
+})
+
+test('attached：send 返回 ATTACHED 并附 holder；holder 落库，回到 idle 后清掉', () => {
+  const { store, hub, seen } = setup()
+  const holder = { kind: 'cli' as const, pid: 4242, tmux: { target: 'dev:1.0' } }
+  hub.applyScan([{ ...view('attached'), holder }])
+  assert.deepEqual(store.getSession(`claude:${SID}`)!.holder, holder)
+  const r = hub.send(`claude:${SID}`, 'x')
+  assert.equal(r.ok, false)
+  assert.equal((r as any).code, 'ATTACHED')
+  assert.deepEqual((r as any).holder, holder)
+  assert.match((r as any).message, /终端/)
+  // 只有 holder 变了也要广播
+  const before = seen.length
+  hub.applyScan([{ ...view('attached'), holder: { kind: 'gui', pid: 4242 } }])
+  assert.equal(seen.length, before + 1)
+  assert.match((hub.send(`claude:${SID}`, 'x') as any).message, /桌面 App/)
+  hub.applyScan([view('idle')])
+  assert.equal(store.getSession(`claude:${SID}`)!.holder, undefined)
+})
+
+test('Store：旧库（sessions 表没有 holder 列）打开时自动补列', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hub-store-'))
+  const file = join(dir, 'hub.sqlite')
+  const old = new DatabaseSync(file)
+  old.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, vendor TEXT NOT NULL, vendor_session_id TEXT NOT NULL, cwd TEXT, title TEXT,
+    origin TEXT NOT NULL, state TEXT NOT NULL, resumable INTEGER NOT NULL DEFAULT 1, unresumable_reason TEXT, archived INTEGER NOT NULL DEFAULT 0,
+    last_message_preview TEXT, last_event_seq INTEGER, vendor_updated_at INTEGER, updated_at INTEGER NOT NULL, UNIQUE(vendor, vendor_session_id))`)
+  old.prepare(`INSERT INTO sessions (id, vendor, vendor_session_id, origin, state, updated_at) VALUES ('claude:a','claude','a','cli','idle',1)`).run()
+  old.close()
+  const store = Store.open(dir)
+  assert.equal(store.getSession('claude:a')!.state, 'idle')
+  store.upsertSession({ ...view('attached', 'a'), holder: { kind: 'gui' } })
+  assert.deepEqual(store.getSession('claude:a')!.holder, { kind: 'gui' })
+  store.close()
 })
 
 test('refresh 复核：列表显示 idle 但实时是 running 时拒绝', () => {
@@ -195,7 +234,7 @@ test('onBusyChange：轮次开始 1、结束 0', async () => {
 
 test('Gateway：REST 鉴权 + WS hello/send/审批/SESSION_BUSY', async () => {
   const { store, bus, hub } = setup('claude/permission-roundtrip.ndjson')
-  hub.applyScan([view('idle'), view('running', 'busy-1')])
+  hub.applyScan([view('idle'), view('running', 'busy-1'), { ...view('attached', 'att-1'), holder: { kind: 'cli', pid: 4242 } }])
   const cfg = { listen: { host: '127.0.0.1', port: 0 }, allowedCwds: ['/tmp'] } as unknown as HubConfig
   const server = await startGateway({ cfg, store, bus, hub, version: 't', vendors: () => ({}) as any, log: () => {} })
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -207,7 +246,8 @@ test('Gateway：REST 鉴权 + WS hello/send/审批/SESSION_BUSY', async () => {
     const pr = await fetch(`${base}/api/pair`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, deviceName: 'cli' }) })
     const { token } = (await pr.json()) as any
     const list = (await (await fetch(`${base}/api/sessions`, { headers: { authorization: `Bearer ${token}` } })).json()) as any[]
-    assert.equal(list.length, 2)
+    assert.equal(list.length, 3)
+    assert.deepEqual(list.find((s) => s.id === 'claude:att-1').holder, { kind: 'cli', pid: 4242 })
     const detail = await fetch(`${base}/api/sessions/${encodeURIComponent(`claude:${SID}`)}`, { headers: { authorization: `Bearer ${token}` } })
     assert.equal(detail.status, 200)
 
@@ -227,6 +267,11 @@ test('Gateway：REST 鉴权 + WS hello/send/审批/SESSION_BUSY', async () => {
     ws.send(JSON.stringify({ t: 'send', reqId: 'r0', sessionId: 'claude:busy-1', text: 'x' }))
     await waitFor(() => msgs.some((m) => m.reqId === 'r0'))
     assert.deepEqual(pick(msgs.find((m) => m.reqId === 'r0')), { ok: false, code: 'SESSION_BUSY' })
+    ws.send(JSON.stringify({ t: 'send', reqId: 'ra', sessionId: 'claude:att-1', text: 'x' }))
+    await waitFor(() => msgs.some((m) => m.reqId === 'ra'))
+    const att = msgs.find((m) => m.reqId === 'ra')
+    assert.equal(att.code, 'ATTACHED')
+    assert.deepEqual(att.holder, { kind: 'cli', pid: 4242 })
 
     ws.send(JSON.stringify({ t: 'send', reqId: 'r1', sessionId: `claude:${SID}`, text: 'p' }))
     await waitFor(() => msgs.some((m) => m.event?.type === 'approval.request'))

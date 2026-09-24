@@ -14,6 +14,7 @@ export type Badge = { label: string; cls: string }
 export function badgeOf(s: SessionView): Badge {
   if (s.state === 'awaiting_approval') return { label: '待审批', cls: 'warn' }
   if (s.state === 'running') return { label: '运行中', cls: 'run' }
+  if (s.state === 'attached') return { label: s.holder?.kind === 'gui' ? 'App 开着' : '终端开着', cls: 'mute' }
   if (s.state === 'error') return { label: '出错', cls: 'err' }
   if (s.archived) return { label: '已归档', cls: 'mute' }
   if (!s.resumable) return { label: '不可续接', cls: 'mute' }
@@ -23,6 +24,7 @@ export function badgeOf(s: SessionView): Badge {
 
 export const STATE_REASON: Partial<Record<SessionState, string>> = {
   running: '会话运行中（桌面端可能正打开着它），空闲后才能续聊',
+  attached: '会话在终端或桌面 App 里开着，关掉后才能在这里续聊',
   awaiting_approval: '正在等待审批',
 }
 
@@ -73,10 +75,10 @@ export const GROUPS: { key: GroupKey; label: string }[] = [
   { key: 'other', label: '其他' },
 ]
 
-/** 会话归到哪一组：进行中的状态优先；可续聊 = 空闲、可续接、未归档；其余（已归档 / 不可续接 / 未知）进「其他」 */
+/** 会话归到哪一组：进行中的状态优先（attached 与 running 同组，都不能续聊）；可续聊 = 空闲、可续接、未归档；其余（已归档 / 不可续接 / 未知）进「其他」 */
 export function groupOf(s: SessionView): GroupKey {
   if (s.state === 'awaiting_approval') return 'awaiting'
-  if (s.state === 'running') return 'running'
+  if (s.state === 'running' || s.state === 'attached') return 'running'
   if (s.state === 'error') return 'error'
   if (s.state === 'idle' && s.resumable && !s.archived) return 'idle'
   return 'other'

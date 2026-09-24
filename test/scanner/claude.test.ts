@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ClaudeScanner, claudeState, historyItems, liveSessionIds, parseHead, parseTail, progressEvents } from '../../src/scanner/claude.ts'
+import { ClaudeScanner, claudeState, historyItems, liveSessionIds, liveSessions, parseHead, parseTail, progressEvents } from '../../src/scanner/claude.ts'
 
 const REC = join(import.meta.dirname, '..', '..', 'recordings', 'claude')
 const CLI_ID = '68fea937-1dcd-4ca5-8a75-3d21e410b32e'
@@ -68,12 +68,61 @@ test('Hub 登记的会话即使是 sdk-cli 也纳入，origin=hub', () => {
   assert.equal(hub?.origin, 'hub')
 })
 
-test('有活 pid 一律 running，哪怕文件很久没写', () => {
+test('parseTail：最后一条人类输入之后有 turn_duration 才算收尾', () => {
+  const all = lines('session-cli-sample.jsonl')
+  // 样本在第二轮中途截断（第 25 行是新的人类输入）
+  assert.equal(parseTail(all).turnOpen, true)
+  const done = all.findLastIndex((o) => o.type === 'system' && o.subtype === 'turn_duration')
+  assert.equal(parseTail(all.slice(0, done + 1)).turnOpen, false)
+  // 尾部块里既没有输入也没有收尾：按未收尾算
+  assert.equal(parseTail(all.filter((o) => o.type === 'assistant')).turnOpen, true)
+  // 中断标记也算收尾
+  assert.equal(parseTail([...all, { type: 'user', message: { content: [{ type: 'text', text: '[Request interrupted by user]' }] } }]).turnOpen, false)
+})
+
+test('有活 pid、最后一轮未收尾：running，哪怕文件很久没写', () => {
   const { root } = fixture()
   writeFileSync(join(root, 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: CLI_ID }))
-  const [s] = scanner(root).scanAll()
+  const [s] = scanner(root, { attachedQuietMs: 1000 }).scanAll()
   assert.equal(s.state, 'running')
+  assert.equal(s.holder, undefined)
   assert.equal(claudeState({ livePid: true, mtimeMs: 0, now: 1e13, quietMs: 3000 }), 'running')
+  assert.equal(claudeState({ livePid: true, mtimeMs: 0, now: 1e13, quietMs: 3000, attachedQuietMs: 1000, turnOpen: true }), 'running')
+})
+
+/** 把样本截到第一轮收尾（turn_duration），模拟"终端开着、已答完、在等输入" */
+function closedTurnFixture(ageMs: number, registry: Record<string, unknown> = {}) {
+  const f = fixture()
+  const all = readFileSync(f.cliFile, 'utf8').split('\n').filter(Boolean)
+  const done = all.findLastIndex((l) => JSON.parse(l).subtype === 'turn_duration')
+  writeFileSync(f.cliFile, all.slice(0, done + 1).join('\n') + '\n')
+  const t = new Date(Date.now() - ageMs)
+  utimesSync(f.cliFile, t, t)
+  writeFileSync(join(f.root, 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: CLI_ID, ...registry }))
+  return f
+}
+
+test('有活 pid、最后一轮已收尾、静默超过 attachedQuietMs → attached，holder 带 pid 与 tmux pane', () => {
+  const { root } = closedTurnFixture(10 * 60_000, { entrypoint: 'cli' })
+  const [s] = scanner(root, { tmuxTarget: (pid) => (pid === process.pid ? 'dev:1.0' : undefined) }).scanAll()
+  assert.equal(s.state, 'attached')
+  assert.deepEqual(s.holder, { kind: 'cli', pid: process.pid, tmux: { target: 'dev:1.0' } })
+  const [plain] = scanner(root, { tmuxTarget: () => undefined }).scanAll()
+  assert.deepEqual(plain.holder, { kind: 'cli', pid: process.pid })
+})
+
+test('attached 的持有者是 Claude Desktop → kind=gui，不查 tmux', () => {
+  const { root } = closedTurnFixture(10 * 60_000, { entrypoint: 'claude-desktop' })
+  const [s] = scanner(root, { tmuxTarget: () => assert.fail('不该查 tmux') }).scanAll()
+  assert.equal(s.state, 'attached')
+  assert.deepEqual(s.holder, { kind: 'gui', pid: process.pid })
+  assert.deepEqual([...liveSessions(join(root, 'sessions'))], [[CLI_ID, { pid: process.pid, entrypoint: 'claude-desktop' }]])
+})
+
+test('已收尾但静默未超过 attachedQuietMs（默认 60s）→ running', () => {
+  const { root } = closedTurnFixture(5_000)
+  const [s] = scanner(root, { tmuxTarget: () => undefined }).scanAll()
+  assert.equal(s.state, 'running')
 })
 
 test('死 pid 不算；刚写入未静默的算 running', () => {

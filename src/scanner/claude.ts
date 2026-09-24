@@ -1,7 +1,8 @@
 import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
-import { sessionKey, type HistoryItem, type HubEvent, type Origin, type SessionState, type SessionView } from '../core/events.ts'
+import { sessionKey, type Holder, type HistoryItem, type HubEvent, type Origin, type SessionState, type SessionView } from '../core/events.ts'
+import { tmuxTargetOf } from './tmux.ts'
 
 // 字段与判定依据见 docs/spec/01-verified-facts.md「Claude Code」与 05-scanner.md。
 
@@ -11,6 +12,7 @@ const TITLE_LEN = 60
 const PREVIEW_LEN = 200
 /** 会话详情只读文件末尾这么多字节 */
 const HISTORY_BYTES = 2 * 1024 * 1024
+export const DEFAULT_ATTACHED_QUIET_MS = 60_000
 
 export interface ClaudeHead {
   sessionId?: string
@@ -24,6 +26,8 @@ export interface ClaudeHead {
 export interface ClaudeTail {
   aiTitle?: string
   lastAssistantText?: string
+  /** 最后一条人类输入之后还没有 turn_duration / 中断标记；尾部块里两者都没有时也按未收尾算 */
+  turnOpen: boolean
 }
 
 /** 用户消息的纯文本；工具结果或无文本返回 undefined */
@@ -89,18 +93,37 @@ export function parseHead(lines: any[]): ClaudeHead & { complete: boolean } {
 }
 
 export function parseTail(lines: any[]): ClaudeTail {
-  const t: ClaudeTail = {}
+  const t: ClaudeTail = { turnOpen: true }
   for (const o of lines) {
     if (o.type === 'ai-title' && o.aiTitle) t.aiTitle = o.aiTitle
     const a = assistantText(o)
     if (a) t.lastAssistantText = a
+    if (o.isSidechain) continue
+    if (isHumanPrompt(o)) t.turnOpen = true
+    else if (o.type === 'system' && o.subtype === 'turn_duration') t.turnOpen = false
+    else if (o.type === 'user' && userText(o)?.trim().startsWith('[Request interrupted')) t.turnOpen = false
   }
   return t
 }
 
-/** 空闲判定：有活 pid 一律 running（桌面端开着）；否则静默超过阈值才 idle。宁可误判为 running。 */
-export function claudeState(o: { livePid: boolean; mtimeMs: number; now: number; quietMs: number }): SessionState {
-  if (o.livePid) return 'running'
+/**
+ * 空闲判定，宁可误判为 running：
+ * - 有活 pid（终端 / Desktop 开着）：最后一轮已收尾且文件静默超过 attachedQuietMs → attached，否则 running
+ * - 没有活 pid：静默超过 quietMs 才 idle
+ */
+export function claudeState(o: {
+  livePid: boolean
+  mtimeMs: number
+  now: number
+  quietMs: number
+  /** 不传则有活 pid 一律 running */
+  attachedQuietMs?: number
+  turnOpen?: boolean
+}): SessionState {
+  if (o.livePid) {
+    const quiet = o.attachedQuietMs !== undefined && o.now - o.mtimeMs > o.attachedQuietMs
+    return quiet && o.turnOpen === false ? 'attached' : 'running'
+  }
   if (o.now - o.mtimeMs <= o.quietMs) return 'running'
   return 'idle'
 }
@@ -147,9 +170,20 @@ function pidAlive(pid: number): boolean {
   }
 }
 
+export interface LiveProcess {
+  pid: number
+  /** 登记文件里的 entrypoint（cli / claude-desktop），用来区分终端与 Desktop */
+  entrypoint?: string
+}
+
 /** ~/.claude/sessions/<pid>.json → sessionId 集合（只算活进程） */
 export function liveSessionIds(sessionsDir: string, alive = pidAlive): Set<string> {
-  const out = new Set<string>()
+  return new Set(liveSessions(sessionsDir, alive).keys())
+}
+
+/** ~/.claude/sessions/<pid>.json → sessionId → 持有它的活进程 */
+export function liveSessions(sessionsDir: string, alive = pidAlive): Map<string, LiveProcess> {
+  const out = new Map<string, LiveProcess>()
   let files: string[]
   try {
     files = readdirSync(sessionsDir)
@@ -161,7 +195,9 @@ export function liveSessionIds(sessionsDir: string, alive = pidAlive): Set<strin
     try {
       const o = JSON.parse(readFileSync(join(sessionsDir, f), 'utf8'))
       const pid = Number(o.pid ?? basename(f, '.json'))
-      if (o.sessionId && pid && alive(pid)) out.add(o.sessionId)
+      if (o.sessionId && pid && alive(pid)) {
+        out.set(o.sessionId, { pid, ...(typeof o.entrypoint === 'string' ? { entrypoint: o.entrypoint } : {}) })
+      }
     } catch {
       // 写到一半的文件，下次再读
     }
@@ -174,6 +210,10 @@ export interface ClaudeScannerOpts {
   sessionsDir?: string
   recentDays: number
   quietMs: number
+  /** 有活 pid 时文件静默超过这么久（且最后一轮已收尾）算 attached，默认 60s */
+  attachedQuietMs?: number
+  /** attached 会话所在的 tmux pane（默认查 tmux）；返回 undefined 表示不在 tmux 里 */
+  tmuxTarget?: (pid: number) => string | undefined
   /** Hub 已登记（origin=hub）的会话即使是 sdk-cli 也纳入 */
   isHubSession?: (vendorSessionId: string) => boolean
   now?: () => number
@@ -234,7 +274,7 @@ export class ClaudeScanner {
 
   /** 全量扫描，返回应展示的会话 */
   scanAll(): SessionView[] {
-    const live = liveSessionIds(this.sessionsDir)
+    const live = liveSessions(this.sessionsDir)
     const out: SessionView[] = []
     const seen = new Set<string>()
     for (const f of this.listFiles()) {
@@ -246,7 +286,7 @@ export class ClaudeScanner {
     return out
   }
 
-  scanFile(file: string, live = liveSessionIds(this.sessionsDir)): SessionView | undefined {
+  scanFile(file: string, live = liveSessions(this.sessionsDir)): SessionView | undefined {
     if (file.includes('/subagents/')) return undefined
     let st
     try {
@@ -269,6 +309,15 @@ export class ClaudeScanner {
 
     const now = this.now()
     const title = m.tail.aiTitle ?? h.aiTitle ?? h.firstUserText?.slice(0, TITLE_LEN) ?? null
+    const proc = live.get(vendorSessionId)
+    const state = claudeState({
+      livePid: !!proc,
+      mtimeMs: st.mtimeMs,
+      now,
+      quietMs: this.o.quietMs,
+      attachedQuietMs: this.o.attachedQuietMs ?? DEFAULT_ATTACHED_QUIET_MS,
+      turnOpen: m.tail.turnOpen,
+    })
     const v: SessionView = {
       id: sessionKey('claude', vendorSessionId),
       vendor: 'claude',
@@ -276,15 +325,28 @@ export class ClaudeScanner {
       cwd: h.cwd ?? null,
       title,
       origin: isHub ? 'hub' : originOf(h.entrypoint),
-      state: claudeState({ livePid: live.has(vendorSessionId), mtimeMs: st.mtimeMs, now, quietMs: this.o.quietMs }),
+      state,
       resumable: !!h.cwd,
       archived: false,
       vendorUpdatedAt: Math.round(st.mtimeMs),
       updatedAt: now,
     }
+    if (state === 'attached' && proc) v.holder = this.holderOf(proc, h.entrypoint)
     if (!h.cwd) v.unresumableReason = '会话文件缺少 cwd'
     if (m.tail.lastAssistantText) v.lastMessagePreview = m.tail.lastAssistantText.slice(0, PREVIEW_LEN)
     return v
+  }
+
+  private holderOf(p: LiveProcess, sessionEntrypoint: string | undefined): Holder {
+    const gui = (p.entrypoint ?? sessionEntrypoint) === 'claude-desktop'
+    if (gui) return { kind: 'gui', pid: p.pid }
+    let target: string | undefined
+    try {
+      target = (this.o.tmuxTarget ?? tmuxTargetOf)(p.pid)
+    } catch {
+      target = undefined
+    }
+    return { kind: 'cli', pid: p.pid, ...(target ? { tmux: { target } } : {}) }
   }
 
   /** 按会话 id 找文件：先查缓存，再逐个项目目录找 `<id>.jsonl` */

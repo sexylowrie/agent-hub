@@ -201,6 +201,7 @@ bash scripts/install-launchd.sh status | restart | uninstall
 | `allowedCwds` | `["~/code", "~/Projects"]` | 新建会话只能落在这些目录下 |
 | `scanner.recentDays` | `30` | 列表只显示最近 N 天的会话 |
 | `scanner.idleQuietMs` | `3000 / 5000 / 0` | 文件静默多久才算空闲（宁可误判为运行中） |
+| `scanner.attachedQuietMs` | `60000` | 终端 / 桌面 App 开着会话、最后一轮已结束且安静多久算「已打开」（attached，仍不可续聊） |
 | `approval.expireSeconds` | `300` | 审批超时自动拒绝 |
 | `publicUrl` | — | 手机访问地址，用于配对链接 |
 | `power.keepAwake` | `ac` | `ac` 接电一直防睡眠 / `turn` 仅 Hub 轮次中 / `off` |

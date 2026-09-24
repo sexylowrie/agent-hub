@@ -8,7 +8,7 @@ CREATE TABLE sessions (
   cwd TEXT,
   title TEXT,                         -- 无标题时取首条用户消息前 60 字
   origin TEXT NOT NULL,               -- desktop | cli | hub
-  state TEXT NOT NULL,                -- idle | running | awaiting_approval | error | unknown
+  state TEXT NOT NULL,                -- idle | running | attached | awaiting_approval | error | unknown
   resumable INTEGER NOT NULL DEFAULT 1,
   unresumable_reason TEXT,            -- 如 "codex 线程无本地会话文件"
   archived INTEGER NOT NULL DEFAULT 0,
@@ -16,6 +16,7 @@ CREATE TABLE sessions (
   last_event_seq INTEGER,
   vendor_updated_at INTEGER,          -- 厂商侧更新时间 ms
   updated_at INTEGER NOT NULL,
+  holder TEXT,                        -- state=attached 时的持有者 JSON {kind:'cli'|'gui', pid?, tmux?:{target}}；旧库启动时自动补列
   UNIQUE(vendor, vendor_session_id)
 );
 CREATE TABLE events (

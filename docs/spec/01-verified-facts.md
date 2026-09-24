@@ -23,7 +23,7 @@
 - 续接已实测：`claude -p --output-format json --resume <sessionId> "<text>"` 成功；resume 会追加写同一个 jsonl。
 - 无头输出：`--output-format stream-json` 事件类型见 `recordings/claude/one-turn-with-tool.ndjson`：`system(init|status|hook_started|hook_response)`、`stream_event`（Anthropic 流事件透传）、`assistant`、`user`（工具结果）、`rate_limit_event`、`result(success)`。
 - 权限审批：`--permission-prompt-tool stdio` + `--input-format stream-json` 时，stdout 出现 `{"type":"control_request","request_id":..,"request":{"subtype":"can_use_tool","tool_name":..,"input":..}}`，stdin 回 `{"type":"control_response","response":{"subtype":"success","request_id":..,"response":{"behavior":"allow"|"deny",...}}}`。样本见 `recordings/claude/permission-roundtrip.ndjson`。
-- 活动会话登记：`~/.claude/sessions/<pid>.json`，含 sessionId、cwd、pid、messagingSocketPath；可用于判断某会话是否有活进程。
+- 活动会话登记：`~/.claude/sessions/<pid>.json`，含 sessionId、cwd、pid、messagingSocketPath；可用于判断某会话是否有活进程。登记里还有 `entrypoint`（`cli` / `claude-desktop`，2026-09-24 本机核对），Scanner 只用它区分 attached 的持有者是终端还是 Desktop；目录里另有只含 `peerToken/procStart` 的文件（无 sessionId），忽略。
 - **会话 jsonl 里没有 `type:"result"` 行**（result 只出现在 stream-json 输出里）。行类型实测有 `user/assistant/attachment/ai-title/mode/permission-mode/last-prompt/file-history-snapshot` 等。
 - `ai-title` 行：`{"type":"ai-title","aiTitle":"...","sessionId":...}`，Claude 自动生成的标题，可能出现多次，取最后一条。
 - 用户消息里有大量包装行：`isMeta:true`、`<command-name>`、`<local-command-stdout>`、`<local-command-caveat>` 等，取标题时要跳过。

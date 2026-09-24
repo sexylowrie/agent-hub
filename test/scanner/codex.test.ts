@@ -4,7 +4,7 @@ import { appendFileSync, closeSync, copyFileSync, mkdirSync, mkdtempSync, openSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { CodexScanner, codexState, heldLockFiles, modelOverrideFor, parseRolloutTail, rolloutHistory, rolloutProgress } from '../../src/scanner/codex.ts'
+import { CodexScanner, codexState, heldLockFiles, holderOf, modelOverrideFor, parseLsof, parseRolloutTail, rolloutHistory, rolloutProgress } from '../../src/scanner/codex.ts'
 import type { HubEvent } from '../../src/core/events.ts'
 import { recordingPath } from '../helpers.ts'
 
@@ -138,12 +138,53 @@ test('写锁：GUI 打开着线程（锁文件被持有）→ running；残留�
   mkdirSync(locks)
   writeFileSync(join(locks, `${SAMPLE_ID}.lock`), '')
   writeFileSync(join(locks, '.coordination.lock'), '')
-  const held = scanner(stateDb, true, { heldLocks: (fs) => new Set(fs) })
-  assert.deepEqual([...held.lockedThreads()], [SAMPLE_ID])
+  // 样本 rollout 静默 60s；attachedQuietMs 调大到 2 分钟 → 仍是 running
+  const held = scanner(stateDb, true, { heldLocks: (fs) => new Map(fs.map((f) => [f, 4242])), attachedQuietMs: 120_000 })
+  assert.deepEqual([...held.lockedThreads()], [[SAMPLE_ID, 4242]])
   assert.equal(held.refresh(SAMPLE_ID)!.state, 'running')
-  const stale = scanner(stateDb, true, { heldLocks: () => new Set() })
+  assert.equal(held.refresh(SAMPLE_ID)!.holder, undefined)
+  const stale = scanner(stateDb, true, { heldLocks: () => new Map() })
   assert.equal(stale.refresh(SAMPLE_ID)!.state, 'idle')
   assert.equal(codexState({ openTurn: false, mtimeMs: 0, now: 1e9, quietMs: 0, codexAlive: () => false, writerLocked: true }), 'running')
+})
+
+test('写锁被持有、最后一轮已收尾、rollout 静默超过 attachedQuietMs → attached，持有者按可执行文件分 gui / cli', () => {
+  const { root, stateDb } = fixture()
+  const locks = join(root, 'thread-writer-locks')
+  mkdirSync(locks)
+  writeFileSync(join(locks, `${SAMPLE_ID}.lock`), '')
+  const heldLocks = (fs: string[]) => new Map(fs.map((f) => [f, 4242]))
+  const gui = scanner(stateDb, true, { heldLocks, attachedQuietMs: 30_000, processCommand: () => '/Applications/ChatGPT.app/Contents/Resources/codex' })
+  const v = gui.refresh(SAMPLE_ID)!
+  assert.equal(v.state, 'attached')
+  assert.deepEqual(v.holder, { kind: 'gui', pid: 4242 })
+  const cli = scanner(stateDb, true, { heldLocks, attachedQuietMs: 30_000, processCommand: () => '/opt/homebrew/bin/codex' })
+  assert.deepEqual(cli.refresh(SAMPLE_ID)!.holder, { kind: 'cli', pid: 4242 })
+  // 查不到持有者：按 gui 处理（上层不会给"结束进程"的选项）
+  assert.deepEqual(holderOf(undefined), { kind: 'gui' })
+  assert.deepEqual(holderOf(7, () => undefined), { kind: 'gui', pid: 7 })
+})
+
+test('写锁被持有但最后一轮未收尾（截掉 task_complete）→ 仍是 running，不算 attached', () => {
+  const { root, stateDb, sample } = fixture()
+  const src = readFileSync(sample, 'utf8').split('\n').filter(Boolean)
+  writeFileSync(sample, src.slice(0, -1).join('\n') + '\n')
+  const old = new Date(Date.now() - 600_000)
+  utimesSync(sample, old, old)
+  const locks = join(root, 'thread-writer-locks')
+  mkdirSync(locks)
+  writeFileSync(join(locks, `${SAMPLE_ID}.lock`), '')
+  const s = scanner(stateDb, true, { heldLocks: (fs) => new Map(fs.map((f) => [f, 4242])), attachedQuietMs: 30_000, processCommand: () => 'x.app/codex' })
+  assert.equal(s.refresh(SAMPLE_ID)!.state, 'running')
+  assert.equal(codexState({ openTurn: true, mtimeMs: 0, now: 1e9, quietMs: 0, codexAlive: () => true, writerLocked: true, attachedQuietMs: 1 }), 'running')
+  assert.equal(codexState({ openTurn: false, mtimeMs: 0, now: 1e9, quietMs: 0, codexAlive: () => true, writerLocked: true, attachedQuietMs: 1 }), 'attached')
+  // 刚写入：running
+  assert.equal(codexState({ openTurn: false, mtimeMs: 1e9 - 10, now: 1e9, quietMs: 0, codexAlive: () => true, writerLocked: true, attachedQuietMs: 1000 }), 'running')
+})
+
+test('parseLsof：p 行之后的 n 行归该进程', () => {
+  const m = parseLsof('p101\nn/a.lock\nn/b.lock\np202\nn/c.lock\n')
+  assert.deepEqual([...m], [['/a.lock', 101], ['/b.lock', 101], ['/c.lock', 202]])
 })
 
 test('heldLockFiles：用 lsof 判断锁文件是否被进程打开', () => {
@@ -156,8 +197,9 @@ test('heldLockFiles：用 lsof 判断锁文件是否被进程打开', () => {
   try {
     const held = heldLockFiles([a, b])
     // lsof 输出的是真实路径（/var → /private/var）
-    assert.equal([...held].some((f) => f.endsWith('/a.lock')), true)
-    assert.equal([...held].some((f) => f.endsWith('/b.lock')), false)
+    const a2 = [...held].find(([f]) => f.endsWith('/a.lock'))
+    assert.equal(a2?.[1], process.pid)
+    assert.equal([...held.keys()].some((f) => f.endsWith('/b.lock')), false)
   } finally {
     closeSync(fd)
   }

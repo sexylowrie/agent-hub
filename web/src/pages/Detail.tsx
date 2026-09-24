@@ -409,6 +409,7 @@ export function Detail({ id }: { id: string }) {
 const STATE_TAG: Record<string, { label: string; cls: string }> = {
   idle: { label: '空闲', cls: 'ok' },
   running: { label: '运行中', cls: 'run' },
+  attached: { label: '已打开', cls: '' },
   awaiting_approval: { label: '待审批', cls: 'warn' },
   error: { label: '出错', cls: 'err' },
   unknown: { label: '未知', cls: '' },

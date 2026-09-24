@@ -3,7 +3,7 @@ import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } fr
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { sessionKey, type HistoryItem, type HubEvent, type Origin, type SessionState, type SessionView } from '../core/events.ts'
+import { sessionKey, type Holder, type HistoryItem, type HubEvent, type Origin, type SessionState, type SessionView } from '../core/events.ts'
 
 // 字段与判定依据见 docs/spec/01-verified-facts.md「Codex」与 05-scanner.md。
 // rollout 行格式以 recordings/codex/rollout-*.jsonl 为准。
@@ -16,6 +16,7 @@ const HISTORY_BYTES = 2 * 1024 * 1024
 /** Hub 自起 app-server 时 clientInfo.name，落到 threads.originator */
 export const HUB_ORIGINATOR = 'agent-hub'
 const NO_ROLLOUT = '无本地会话文件（ChatGPT 聊天线程）'
+export const DEFAULT_ATTACHED_QUIET_MS = 60_000
 
 export interface ThreadRow {
   id: string
@@ -85,7 +86,8 @@ function userText(item: any): string | undefined {
 }
 
 /**
- * 空闲判定：线程写锁被持有（GUI 打开着该线程，或有别的 app-server 在写）→ running；
+ * 空闲判定：线程写锁被持有（GUI 打开着该线程，或有别的 app-server 在写）→ 最后一轮已收尾且 rollout 静默超过
+ * attachedQuietMs 时 attached，否则 running；
  * rollout 最近 quietMs 内有写入 → running；
  * 最后一轮未收尾（task_started 后没有 complete/aborted）且有活的 codex 进程 → running（GUI 可能在跑或等审批）；
  * 未收尾但本机没有任何 codex 进程 → 视为崩溃遗留，idle。宁可误判为 running。
@@ -97,8 +99,13 @@ export function codexState(o: {
   quietMs: number
   codexAlive: () => boolean
   writerLocked?: boolean
+  /** 不传则写锁被持有一律 running */
+  attachedQuietMs?: number
 }): SessionState {
-  if (o.writerLocked) return 'running'
+  if (o.writerLocked) {
+    const quiet = o.attachedQuietMs !== undefined && o.now - o.mtimeMs > o.attachedQuietMs
+    return quiet && !o.openTurn ? 'attached' : 'running'
+  }
   if (o.now - o.mtimeMs <= o.quietMs) return 'running'
   if (o.openTurn && o.codexAlive()) return 'running'
   return 'idle'
@@ -158,21 +165,48 @@ export function modelOverrideFor(threadModel: string | null | undefined, availab
   return fallbackModel
 }
 
+/** `lsof -Fpn` 输出 → 文件 → 打开它的进程 pid（p 行在前，其后的 n 行都属于它） */
+export function parseLsof(out: string): Map<string, number | undefined> {
+  const m = new Map<string, number | undefined>()
+  let pid: number | undefined
+  for (const l of out.split('\n')) {
+    if (l.startsWith('p')) pid = Number(l.slice(1)) || undefined
+    else if (l.startsWith('n') && !m.has(l.slice(1))) m.set(l.slice(1), pid)
+  }
+  return m
+}
+
 /**
- * 哪些锁文件正被进程打开（持有 flock）。Node 没有 flock API，用一次 lsof 批量查；
- * lsof 在部分文件未被打开时退出码为 1，stdout 仍列出被打开的那些。查询失败时保守地视为全部持有。
+ * 哪些锁文件正被进程打开（持有 flock），以及被哪个进程打开。Node 没有 flock API，用一次 lsof 批量查；
+ * lsof 在部分文件未被打开时退出码为 1，stdout 仍列出被打开的那些。查询失败时保守地视为全部持有（持有者未知）。
  */
-export function heldLockFiles(files: string[]): Set<string> {
-  if (!files.length) return new Set()
+export function heldLockFiles(files: string[]): Map<string, number | undefined> {
+  if (!files.length) return new Map()
   let out: string
   try {
-    out = execFileSync('lsof', ['-Fn', '--', ...files], { encoding: 'utf8', timeout: 5000 })
+    out = execFileSync('lsof', ['-Fpn', '--', ...files], { encoding: 'utf8', timeout: 5000 })
   } catch (e) {
     const err = e as { status?: number; stdout?: string }
-    if (err.status !== 1) return new Set(files)
+    if (err.status !== 1) return new Map(files.map((f) => [f, undefined]))
     out = err.stdout ?? ''
   }
-  return new Set(out.split('\n').filter((l) => l.startsWith('n')).map((l) => l.slice(1)))
+  return parseLsof(out)
+}
+
+/** 进程的可执行文件路径；查不到返回 undefined */
+export function processCommand(pid: number): string | undefined {
+  try {
+    return execFileSync('ps', ['-o', 'comm=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 }).trim() || undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** 写锁持有者：可执行文件在 .app 包里（ChatGPT App 拉起的 app-server）算 gui；查不到也按 gui（不给"结束进程"的选项） */
+export function holderOf(pid: number | undefined, command: (pid: number) => string | undefined = processCommand): Holder {
+  const cmd = pid ? command(pid) : undefined
+  const kind = !cmd || cmd.includes('.app/') ? 'gui' : 'cli'
+  return { kind, ...(pid ? { pid } : {}) }
 }
 
 export interface CodexScannerOpts {
@@ -183,7 +217,11 @@ export interface CodexScannerOpts {
   codexAlive?: () => boolean
   /** 默认 ~/.codex/thread-writer-locks */
   locksDir?: string
-  heldLocks?: (files: string[]) => Set<string>
+  heldLocks?: (files: string[]) => Map<string, number | undefined>
+  /** 写锁持有进程的可执行文件路径（区分 GUI 与 CLI） */
+  processCommand?: (pid: number) => string | undefined
+  /** 写锁被持有、最后一轮已收尾且 rollout 静默超过这么久算 attached，默认 60s */
+  attachedQuietMs?: number
   now?: () => number
 }
 
@@ -246,22 +284,22 @@ export class CodexScanner {
     return this.query((db) => db.prepare(`SELECT ${COLS} FROM threads WHERE id = ?`).get(id) as unknown as ThreadRow | undefined, undefined)
   }
 
-  /** 写锁被持有的线程 id（锁文件释放后会删除；进程崩溃可能留下无人持有的文件，所以还要查是否真被持有） */
-  lockedThreads(): Set<string> {
+  /** 写锁被持有的线程 id → 持有进程 pid（锁文件释放后会删除；进程崩溃可能留下无人持有的文件，所以还要查是否真被持有） */
+  lockedThreads(): Map<string, number | undefined> {
     let names: string[]
     try {
       names = readdirSync(this.locksDir).filter((f) => f.endsWith('.lock') && !f.startsWith('.'))
     } catch {
-      return new Set()
+      return new Map()
     }
-    if (!names.length) return new Set()
+    if (!names.length) return new Map()
     const files = names.map((f) => join(this.locksDir, f))
     // lsof 输出的是真实路径，按文件名比对
-    const held = new Set([...(this.o.heldLocks ?? heldLockFiles)(files)].map((f) => basename(f)))
-    return new Set(names.filter((f) => held.has(f)).map((f) => basename(f, '.lock')))
+    const held = new Map([...(this.o.heldLocks ?? heldLockFiles)(files)].map(([f, pid]) => [basename(f), pid]))
+    return new Map(names.filter((f) => held.has(f)).map((f) => [basename(f, '.lock'), held.get(f)]))
   }
 
-  private view(r: ThreadRow, codexAlive: () => boolean, locked: Set<string>): SessionView {
+  private view(r: ThreadRow, codexAlive: () => boolean, locked: Map<string, number | undefined>): SessionView {
     const now = this.now()
     const isHub = this.o.isHubSession?.(r.id) ?? false
     const title = r.name || r.title || r.first_user_message?.slice(0, TITLE_LEN) || null
@@ -295,7 +333,16 @@ export class CodexScanner {
       this.meta.set(r.rollout_path, m)
     }
     this.byPath.set(r.rollout_path, r.id)
-    v.state = codexState({ openTurn: m.tail.openTurn, mtimeMs: st.mtimeMs, now, quietMs: this.o.quietMs, codexAlive, writerLocked: locked.has(r.id) })
+    v.state = codexState({
+      openTurn: m.tail.openTurn,
+      mtimeMs: st.mtimeMs,
+      now,
+      quietMs: this.o.quietMs,
+      codexAlive,
+      writerLocked: locked.has(r.id),
+      attachedQuietMs: this.o.attachedQuietMs ?? DEFAULT_ATTACHED_QUIET_MS,
+    })
+    if (v.state === 'attached') v.holder = holderOf(locked.get(r.id), this.o.processCommand)
     if (!v.cwd) {
       v.resumable = false
       v.unresumableReason = '线程缺少 cwd'
