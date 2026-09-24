@@ -6,6 +6,7 @@
 //   - Claude SessionStart hook_response：输出正文清空（可能含记忆库、项目上下文）
 //   - Claude stop_hook_summary：hook 命令行替换为占位
 //   - 家目录用户名替换为 dev；SANITIZE_WORDS（逗号分隔，如私有项目名）替换为 demo-app
+//   - 设备标识：Codex installationId、本机主机名（*.local）、ls -l 里的属主用户名、Cursor 团队规则指纹
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -20,9 +21,13 @@ const WORDS = (process.env.SANITIZE_WORDS ?? '').split(',').map((w) => w.trim())
 const REPLACE: [RegExp, string][] = [
   [new RegExp(`/Users/${user}(?=[/"'\\\\\\s]|$)`, 'g'), '/Users/dev'],
   ...WORDS.map((w): [RegExp, string] => [new RegExp(`\\b${esc(w)}\\b`, 'gi'), 'demo-app']),
+  [/"installationId"\s*:\s*"[0-9a-fA-F-]{36}"/g, '"installationId":"00000000-0000-0000-0000-000000000000"'],
+  [/"serverName"\s*:\s*"[^"]+\.local"/g, '"serverName":"my-mac.local"'],
+  [/"userInfoTeamRulesFingerprint"\s*:\s*"[^"]*"/g, '"userInfoTeamRulesFingerprint":"000000"'],
+  [new RegExp(` ${esc(user)}(\\s+staff)`, 'g'), ' dev$1'],
 ]
 /** 脱敏后不应再出现的内容 */
-const LEAKS = [new RegExp(`/Users/${user}\\b`), /mcp__(?!ide__)/, /viking:\/\//i, /openviking/i, ...WORDS.map((w) => new RegExp(`\\b${esc(w)}\\b`, 'i'))]
+const LEAKS = [new RegExp(`/Users/${user}\\b`), new RegExp(`-Users-${esc(user)}-`), /"installationId"\s*:\s*"(?!0{8}-)/, /mcp__(?!ide__)/, /viking:\/\//i, /openviking/i, ...WORDS.map((w) => new RegExp(`\\b${esc(w)}\\b`, 'i'))]
 
 /** Claude CLI 自带的工具与 agent，保留；其余都是本机装的 */
 const BUILTIN_TOOLS = new Set(['Task', 'Agent', 'Bash', 'Glob', 'Grep', 'Read', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch', 'TodoWrite', 'BashOutput', 'KillShell', 'ExitPlanMode', 'Skill', 'SlashCommand', 'ToolSearch'])

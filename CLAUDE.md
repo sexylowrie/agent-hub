@@ -57,7 +57,7 @@
 ### 4. 录制、样本与截图（开源红线）
 - 录制会带上本机环境（Claude `system/init` 里的 MCP 服务 / skills / 插件清单、SessionStart hook 输出、家目录、私有项目名）。**新录制提交前必须**：`SANITIZE_WORDS=<私有词,逗号分隔> npm run sanitize`，再 `npm run sanitize -- --check` 通过
 - 录制只用探针会话（`/tmp` 或 gitignored 的 `data/` 下新建），**不要 resume 用户真实的会话**，不要把真实会话内容写进样本、测试、文档或提交说明
-- 代码、测试、文档、设计稿里不出现：真实家目录与用户名（用 `/Users/dev`）、主机名 / tailnet 名 / IP（用 `my-mac.example.ts.net`）、邮箱、公司与内部服务名、其他私有项目名、真实会话标题
+- 代码、测试、文档、设计稿里不出现：真实家目录与用户名（用 `/Users/dev`，含编码形式 `-Users-<name>-`）、主机名 / tailnet 名 / IP（用 `my-mac.example.ts.net`）、设备标识（Codex `installationId`、`*.local` 主机名等）、邮箱、公司与内部服务名、其他私有项目名、真实会话标题
 - README / 文档截图只用演示数据（真实前端 + 注入的假 `fetch` / `WebSocket`），不截真实会话
 - 提交前自查：`git diff --cached` 里有没有上面这些内容；大块二进制或生成物（如协议 schema 导出）不入库
 
