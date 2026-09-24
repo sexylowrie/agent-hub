@@ -16,7 +16,8 @@
     "gen:codex": "bash scripts/gen-codex-types.sh",
     "web:install": "npm --prefix web install",
     "web:build": "npm --prefix web run build",
-    "web:dev": "npm --prefix web run dev"
+    "web:dev": "npm --prefix web run dev",
+    "sanitize": "tsx scripts/sanitize-recordings.ts"
   },
   "dependencies": {
     "hono": "^4.13.8",

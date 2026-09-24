@@ -14,6 +14,8 @@
 | codex/app-server-approval.ndjson | 同上，read-only 沙箱触发 `item/commandExecution/requestApproval` 并回 accept | 审批往返 |
 | cursor/one-turn-with-tool.ndjson | `agent -p --output-format stream-json --sandbox enabled`，含 tool_call | 事件映射 |
 
+**脱敏**：录制会带上本机环境（Claude `system/init` 里的 MCP 服务 / skills / 插件清单、SessionStart hook 输出、家目录用户名等）。新录制后、提交前务必运行 `npm run sanitize`（`--check` 只检查）；已提交的样本均已脱敏，家目录统一为 `/Users/dev`。
+
 录制脚本：`npm run record -- claude|codex|cursor [--prompt ..] [--cwd ..] [--resume id] [--decision allow|deny] [--out 文件名] [--interrupt-after ms]`；codex 另有 `--unarchive`、`--model`、`--force`。
 
 ## M1 补充（2026-09-24，均用 `npm run record` 录制，只动 /tmp 下的探针会话）
