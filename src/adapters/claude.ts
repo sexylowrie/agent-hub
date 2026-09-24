@@ -279,9 +279,11 @@ export function buildControlResponse(c: ControlRequest, decision: Decision) {
   return { type: 'control_response', response: { subtype: 'success', request_id: c.requestId, response } }
 }
 
-export function claudeArgs(o: { resumeId?: string; force?: boolean }): string[] {
+export function claudeArgs(o: { resumeId?: string; force?: boolean; fork?: boolean }): string[] {
   const args = ['-p']
   if (o.resumeId) args.push('--resume', o.resumeId)
+  // 继承原会话上下文、另开新 id（原会话文件不动）；新 id 从 system.init.session_id 取
+  if (o.resumeId && o.fork) args.push('--fork-session')
   args.push(
     '--input-format', 'stream-json',
     '--output-format', 'stream-json',
@@ -293,8 +295,22 @@ export function claudeArgs(o: { resumeId?: string; force?: boolean }): string[] 
   return args
 }
 
+/** 一轮的解析器参数：新建与 fork 都不预设会话 id（从 system.init.session_id 取），并先产出 session.upsert */
+export function claudeParserOpts(o: { resumeId?: string; fork?: boolean; cwd: string; text: string; turnId: string; commandUuid?: string }) {
+  const fresh = !o.resumeId || !!o.fork
+  return {
+    commandUuid: o.commandUuid,
+    turnId: o.turnId,
+    prompt: o.text,
+    vendorSessionId: fresh ? undefined : o.resumeId,
+    cwd: o.cwd,
+    isStart: fresh,
+  }
+}
+
 export class ClaudeAdapter implements AgentAdapter {
   readonly vendor = 'claude' as const
+  readonly supportsFork = true
 
   constructor(private readonly bin: string) {}
 
@@ -310,15 +326,8 @@ export class ClaudeAdapter implements AgentAdapter {
     const { opts } = o
     const q = new AsyncQueue<HubEvent>()
     const commandUuid = randomUUID()
-    const parser = new ClaudeLineParser({
-      commandUuid,
-      turnId: opts.turnId,
-      prompt: o.text,
-      vendorSessionId: o.resumeId,
-      cwd: o.cwd,
-      isStart: !o.resumeId,
-    })
-    const child = spawn(this.bin, claudeArgs({ resumeId: o.resumeId, force: opts.force }), {
+    const parser = new ClaudeLineParser(claudeParserOpts({ ...o, fork: opts.fork, turnId: opts.turnId, commandUuid }))
+    const child = spawn(this.bin, claudeArgs({ resumeId: o.resumeId, force: opts.force, fork: opts.fork }), {
       cwd: o.cwd,
       env: process.env,
       stdio: ['pipe', 'pipe', 'pipe'],

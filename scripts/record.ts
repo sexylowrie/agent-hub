@@ -2,7 +2,7 @@
 // `<< ` 子进程 stdout，`>> ` 我方写入 stdin（`>> [xxx]` 为动作标记）；stderr 另存 <name>.stderr.txt。
 //
 // 用法：
-//   npm run record -- claude [--prompt 文本] [--cwd 目录] [--resume <sessionId>] [--decision allow|deny] [--out 文件名|绝对路径] [--interrupt-after ms]
+//   npm run record -- claude [--prompt 文本] [--cwd 目录] [--resume <sessionId>] [--fork] [--decision allow|deny] [--out 文件名|绝对路径] [--interrupt-after ms]
 //   npm run record -- codex  [同上] [--unarchive] [--force] [--model m]  # app-server JSON-RPC；--resume 为 threadId；--force 用 workspace-write；--model 覆盖线程模型
 //   npm run record -- cursor [同上，无 --decision] [--force]     # agent -p stream-json；--resume 为 composerId
 // 默认在 /tmp 新开会话，审批自动按 --decision 回复（默认 allow）。
@@ -29,6 +29,7 @@ const { positionals, values } = parseArgs({
     unarchive: { type: 'boolean', default: false },
     force: { type: 'boolean', default: false },
     model: { type: 'string' },
+    fork: { type: 'boolean', default: false },
   },
 })
 
@@ -85,7 +86,7 @@ function mark(action: string) {
 }
 
 if (vendor === 'claude') {
-  const child = launch(cfg.binaries.claude, claudeArgs({ resumeId: values.resume }))
+  const child = launch(cfg.binaries.claude, claudeArgs({ resumeId: values.resume, fork: values.fork }))
   const write = writer(child)
   if (values['interrupt-after']) {
     setTimeout(() => {

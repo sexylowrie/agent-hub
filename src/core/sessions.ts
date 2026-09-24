@@ -157,6 +157,33 @@ export class Hub {
     return { ok: true, data: { turnId } }
   }
 
+  /**
+   * fork：继承原会话上下文另开一条新会话，原会话不动。允许对 idle 与 attached 会话做（attached 的持有进程继续写原会话，
+   * 新会话是另一个文件，不冲突）；真在跑的会话不 fork。新会话 id 由 Adapter 的 session.upsert 带回，轮次先挂在 pending:<turnId>。
+   */
+  fork(sessionId: string, text: string, force = false): AckResult {
+    let s = this.store.getSession(sessionId)
+    if (!s) return this.reject('NOT_FOUND', `会话不存在: ${sessionId}`)
+    const adapter = this.o.adapters[s.vendor]
+    if (!adapter) return this.reject('VENDOR_UNSUPPORTED', `暂不支持 ${s.vendor}`)
+    if (!adapter.supportsFork) return this.reject('FORK_UNSUPPORTED', `${s.vendor} 不支持 fork，只能新建会话`)
+    if (!s.resumable) return this.reject('NOT_RESUMABLE', s.unresumableReason ?? '该会话不可续聊')
+    if (this.isBusy(sessionId)) return this.reject('SESSION_BUSY', '已有 Hub 轮次在进行')
+    if (this.o.refresh) {
+      const fresh = this.o.refresh(s)
+      if (!fresh) return this.reject('NOT_FOUND', `会话已不存在: ${sessionId}`)
+      this.applyScan([fresh])
+      s = this.store.getSession(sessionId)!
+    }
+    if (s.state !== 'idle' && s.state !== 'attached') return this.reject('SESSION_BUSY', `会话正在运行（state=${s.state}），不能 fork`)
+    if (!s.cwd && adapter.requiresCwd !== false) return this.reject('NOT_RESUMABLE', '会话缺少 cwd')
+    const turnId = randomUUID()
+    const cwd = s.cwd ?? ''
+    const vendorSessionId = s.vendorSessionId
+    void this.runTurn(`pending:${turnId}`, turnId, force, (opts) => adapter.resume(vendorSessionId, cwd, text, { ...opts, fork: true }))
+    return { ok: true, data: { turnId } }
+  }
+
   start(vendor: Vendor, cwd: string, text: string, force = false): AckResult {
     const adapter = this.o.adapters[vendor]
     if (!adapter) return this.reject('VENDOR_UNSUPPORTED', `暂不支持 ${vendor}`)

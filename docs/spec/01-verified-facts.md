@@ -36,6 +36,7 @@
 - **后台任务**：模型用 `run_in_background` 起的命令，`result` 之后 `claude -p` 会**等后台任务结束才退出**，期间无输出（实测 sleep 60 → 进程多活约 60s）。
 - **遗留轮次**：上一轮后台任务在进程退出后才结束的，下次 `--resume` 时 claude 会先处理补排的 `<task-notification>`，输出一个**不属于本次输入**的空 `result`（`duration_ms`≈20，usage 为 0），再处理本次输入。该空 `result` **可能早于**本次输入的 `queued` 到达（真机观察到的竞态）。样本：`recordings/claude/resume-with-leftover-notification.ndjson`。
 - **SIGINT 中断**：输出 `user`（`[Request interrupted by user]`）→ `result{subtype:"error_during_execution",is_error:true}` → `command_lifecycle{state:"cancelled"}`，进程随即退出。样本：`recordings/claude/interrupted.ndjson`。
+- **`--fork-session`**（2026-09-24 实测，claude 2.1.281）：`claude -p --resume <原 id> --fork-session ...` 从一开始（含 `hook_started`、`command_lifecycle`、`system/init`）输出的 `session_id` 就是**新 id**；新会话文件写在同一 cwd 编码目录下，包含原会话上下文；原会话文件不追加任何内容。SessionStart hook 的 `hook_name` 为 `SessionStart:fork`。样本：`recordings/claude/fork-session.ndjson`。
 - Hub `--resume` 必须在会话原 cwd 下拉起（claude 按 cwd 编码目录找会话文件）。
 - 会话文件大小可达 100 MB（本机 1.2 GB / 655 个），Scanner 只读头尾块，不整文件读。
 - 不要用 `--bare`（只认 API key，订阅登录不可用）。

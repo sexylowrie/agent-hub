@@ -2,10 +2,11 @@
 
 ## 接口（src/adapters/types.ts）
 ```ts
-interface RunOpts { force?: boolean; signal: AbortSignal; onApproval: (req: ApprovalRequest) => Promise<Decision> }
+interface RunOpts { force?: boolean; fork?: boolean; signal: AbortSignal; onApproval: (req: ApprovalRequest) => Promise<Decision> }
 interface AgentAdapter {
   readonly vendor: Vendor
   readonly requiresCwd?: boolean   // 默认 true；false 时会话缺 cwd 也允许续聊（Cursor）
+  readonly supportsFork?: boolean  // 默认 false；只有 Claude 为 true
   resume(vendorSessionId: string, cwd: string, text: string, opts: RunOpts): AsyncIterable<HubEvent>
   start(cwd: string, text: string, opts: RunOpts): AsyncIterable<HubEvent>   // 需产出 session.upsert 带新 id
 }
@@ -14,6 +15,9 @@ interface AgentAdapter {
 - 审批：Adapter 解析出请求后调用 `opts.onApproval`，Core 负责写 approvals 表、广播、等待客户端决定或超时，再把 Decision 返回给 Adapter 回执。
 - 所有 stdout 行先 `JSON.parse`，失败的行作为 `error{recoverable:true}` 记录原文前 200 字，不中断。
 - 子进程 `env` 继承当前用户环境；不注入任何 API key。
+- **fork**（`RunOpts.fork`，只对 `resume` 有效）：继承原会话上下文另开一条新会话，原会话文件不动；Adapter 需像 `start()` 一样先产出带新 id 的 `session.upsert`。
+  Core 入口是 `Hub.fork(sessionId, text, force?)`：只对 `idle` / `attached` 会话放行（真在跑的不 fork），轮次先挂在 `pending:<turnId>`，拿到新 id 后转到新会话；
+  `supportsFork` 为假的厂商（Codex、Cursor 没有 fork）直接回 `FORK_UNSUPPORTED`，不拉起进程——Adapter 本身忽略该选项。WS 协议不暴露 fork，由嵌入方（如 dougan）自己开接口调用。
 
 ## Claude（src/adapters/claude.ts）
 ```
@@ -27,6 +31,7 @@ claude -p --resume <id> --input-format stream-json --output-format stream-json \
 - 由 Hub 发起中断（SIGINT）后的 `error_during_execution` 记为 `turn.done{status:interrupted}`，不发 `error`。
 - `control_request.can_use_tool` → `onApproval`；回 `control_response`，allow 时带 `updatedInput: request.input`。
 - `start()` 不带 `--resume`，从 `system.init.session_id` 取新 id。
+- fork：`--resume <原 id> --fork-session`；同 `start()`，不预设会话 id，从 `system.init.session_id` 取新 id 并先产出 `session.upsert`（origin=hub）。样本 `recordings/claude/fork-session.ndjson`。
 - `--permission-mode` 默认 `default`；`force` 时用 `acceptEdits`，**不用** bypass。
 
 ## Codex（src/adapters/codex.ts）

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ClaudeLineParser, approvalFromControl, buildControlResponse, claudeArgs, type ControlRequest } from '../../src/adapters/claude.ts'
+import { ClaudeAdapter, ClaudeLineParser, approvalFromControl, buildControlResponse, claudeArgs, claudeParserOpts, type ControlRequest } from '../../src/adapters/claude.ts'
 import type { HubEvent } from '../../src/core/events.ts'
 import { stdinLines, stdoutLines } from '../helpers.ts'
 
@@ -83,6 +83,34 @@ test('参数：默认 default 权限模式，force 用 acceptEdits，不用 bypa
   assert.equal(f[f.indexOf('--permission-mode') + 1], 'acceptEdits')
   assert.ok(!f.includes('--resume'))
   assert.ok(!f.join(' ').includes('bypass'))
+})
+
+test('fork-session：--resume 原 id + --fork-session，新 id 从 init 取并先发 session.upsert', () => {
+  const file = 'claude/fork-session.ndjson'
+  const ORIGINAL = 'fc1972b0-3e7d-4924-9eab-4074b6c8f8f5'
+  const FORKED = '72ed2e39-744d-4b97-97c9-98cc089c0926'
+  const commandUuid = stdinLines(file).find((l) => l.type === 'user').uuid
+  const opts = claudeParserOpts({ resumeId: ORIGINAL, fork: true, cwd: '/tmp', text: '只回复两个字：好的', turnId: 'tf', commandUuid })
+  assert.equal(opts.vendorSessionId, undefined)
+  const { events, done } = replay(file, opts)
+  assert.ok(done)
+  assert.deepEqual(types(events), ['session.upsert', 'turn.started', 'message.user', 'message.delta', 'turn.done'])
+  const s = (events[0] as any).session
+  assert.equal(s.id, `claude:${FORKED}`)
+  assert.equal(s.origin, 'hub')
+  assert.equal(s.cwd, '/tmp')
+  assert.ok(events.slice(1).every((e) => (e as any).sessionId === `claude:${FORKED}`))
+  assert.equal((events.at(-1) as any).resultText, '好的')
+  // 不 fork 的 resume 沿用原 id、不发 upsert
+  assert.equal(claudeParserOpts({ resumeId: ORIGINAL, cwd: '/tmp', text: 'x', turnId: 't' }).vendorSessionId, ORIGINAL)
+  assert.equal(new ClaudeAdapter('claude').supportsFork, true)
+})
+
+test('参数：fork 只在 resume 时加 --fork-session', () => {
+  const a = claudeArgs({ resumeId: 'x', fork: true })
+  assert.deepEqual(a.slice(0, 4), ['-p', '--resume', 'x', '--fork-session'])
+  assert.ok(!claudeArgs({ fork: true }).includes('--fork-session'))
+  assert.ok(!claudeArgs({ resumeId: 'x' }).includes('--fork-session'))
 })
 
 test('adapter-args-roundtrip：Adapter 实际参数（partial + stdio 审批）', () => {

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import type { AddressInfo } from 'node:net'
 import { WebSocket } from 'ws'
-import { ClaudeLineParser, approvalFromControl, buildControlResponse } from '../../src/adapters/claude.ts'
+import { ClaudeLineParser, approvalFromControl, buildControlResponse, claudeParserOpts } from '../../src/adapters/claude.ts'
 import type { AgentAdapter, RunOpts } from '../../src/adapters/types.ts'
 import { AsyncQueue } from '../../src/adapters/proc.ts'
 import { Bus } from '../../src/core/bus.ts'
@@ -24,17 +24,20 @@ const SID = 'f2301e94-69c5-4852-b821-0a015e847cb6'
 /** 回放 Adapter：把录制逐行喂给真实解析器，遇到审批调用 onApproval 并记录回执 */
 class ReplayAdapter implements AgentAdapter {
   readonly vendor = 'claude' as const
+  readonly supportsFork = true
   responses: unknown[] = []
+  forks: string[] = []
   constructor(private file: string) {}
   resume(id: string, cwd: string, text: string, opts: RunOpts) {
-    return this.run(text, opts, id)
+    if (opts.fork) this.forks.push(id)
+    return this.run(text, opts, id, cwd)
   }
   start(cwd: string, text: string, opts: RunOpts) {
     return this.run(text, opts, undefined, cwd)
   }
-  private run(prompt: string, opts: RunOpts, vendorSessionId?: string, cwd?: string): AsyncIterable<HubEvent> {
+  private run(prompt: string, opts: RunOpts, resumeId: string | undefined, cwd: string): AsyncIterable<HubEvent> {
     const q = new AsyncQueue<HubEvent>()
-    const p = new ClaudeLineParser({ turnId: opts.turnId, prompt, vendorSessionId, cwd, isStart: !vendorSessionId })
+    const p = new ClaudeLineParser(claudeParserOpts({ resumeId, fork: opts.fork, cwd, text: prompt, turnId: opts.turnId }))
     void (async () => {
       for (const line of stdoutLines(this.file)) {
         const r = p.feed(line)
@@ -121,6 +124,42 @@ test('attached：send 返回 ATTACHED 并附 holder；holder 落库，回到 idl
   assert.match((hub.send(`claude:${SID}`, 'x') as any).message, /桌面 App/)
   hub.applyScan([view('idle')])
   assert.equal(store.getSession(`claude:${SID}`)!.holder, undefined)
+})
+
+test('fork：attached 会话可以 fork，新会话挂上轮次，原会话状态不变', async () => {
+  const { store, hub, adapter, seen } = setup('claude/fork-session.ndjson')
+  const ORIGINAL = 'fc1972b0-3e7d-4924-9eab-4074b6c8f8f5'
+  const FORKED = 'claude:72ed2e39-744d-4b97-97c9-98cc089c0926'
+  hub.applyScan([{ ...view('attached', ORIGINAL), holder: { kind: 'cli', pid: 4242 } }])
+  const r = hub.fork(`claude:${ORIGINAL}`, '只回复两个字：好的')
+  assert.equal(r.ok, true)
+  assert.deepEqual(adapter.forks, [ORIGINAL])
+  await waitFor(() => seen.some((e) => e.type === 'turn.done'))
+  await waitFor(() => !hub.isBusy(FORKED))
+  const forked = store.getSession(FORKED)!
+  assert.equal(forked.origin, 'hub')
+  assert.equal(forked.state, 'idle')
+  assert.equal(forked.lastMessagePreview, '好的')
+  assert.deepEqual(store.eventsSince(FORKED).map((e) => e.event.type).filter((t) => t !== 'session.state'), ['turn.started', 'message.user', 'message.delta', 'turn.done'])
+  const orig = store.getSession(`claude:${ORIGINAL}`)!
+  assert.equal(orig.state, 'attached')
+  assert.equal(store.eventsSince(`claude:${ORIGINAL}`).length, 0)
+})
+
+test('fork：真在跑的会话不 fork；不支持 fork 的厂商返回 FORK_UNSUPPORTED', () => {
+  const { hub } = setup('claude/fork-session.ndjson')
+  hub.applyScan([view('running')])
+  assert.equal(pick(hub.fork(`claude:${SID}`, 'x')).code, 'SESSION_BUSY')
+  hub.applyScan([view('awaiting_approval')])
+  assert.equal(pick(hub.fork(`claude:${SID}`, 'x')).code, 'SESSION_BUSY')
+  assert.equal(pick(hub.fork('claude:nope', 'x')).code, 'NOT_FOUND')
+  const store = new Store(':memory:')
+  const noFork: AgentAdapter = { vendor: 'codex', resume: () => assert.fail('不该拉起'), start: () => assert.fail('不该拉起') }
+  const h2 = new Hub({ store, bus: new Bus(), adapters: { codex: noFork }, approvalExpireMs: 1000, isCwdAllowed: () => true, log: () => {} })
+  h2.applyScan([{ ...view('idle', 'th'), id: 'codex:th', vendor: 'codex' }])
+  const r = h2.fork('codex:th', 'x') as any
+  assert.equal(r.code, 'FORK_UNSUPPORTED')
+  assert.match(r.message, /codex/)
 })
 
 test('Store：旧库（sessions 表没有 holder 列）打开时自动补列', () => {

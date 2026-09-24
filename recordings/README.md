@@ -15,7 +15,7 @@
 
 **脱敏**：录制会带上本机环境（Claude `system/init` 里的 MCP 服务 / skills / 插件清单、SessionStart hook 输出、家目录用户名等）。新录制后、提交前务必运行 `npm run sanitize`（`--check` 只检查）；已提交的样本均已脱敏，家目录统一为 `/Users/dev`。
 
-录制脚本：`npm run record -- claude|codex|cursor [--prompt ..] [--cwd ..] [--resume id] [--decision allow|deny] [--out 文件名] [--interrupt-after ms]`；codex 另有 `--unarchive`、`--model`、`--force`。
+录制脚本：`npm run record -- claude|codex|cursor [--prompt ..] [--cwd ..] [--resume id] [--decision allow|deny] [--out 文件名] [--interrupt-after ms]`；claude 另有 `--fork`（配合 `--resume` 加 `--fork-session`）；codex 另有 `--unarchive`、`--model`、`--force`。
 
 ## M1 补充（2026-09-24，均用 `npm run record` 录制，只动 /tmp 下的探针会话）
 | 文件 | 内容 | 用途 |
@@ -37,3 +37,8 @@
 |---|---|---|
 | claude/session-cli-sample.jsonl | 真实 `entrypoint:cli` 交互会话前 30 行，经 `scripts/trim-claude-session.ts` 裁剪（丢 attachment、截断长文本） | Scanner 头尾解析、标题、增量进度 |
 | claude/session-sdk-cli-sample.jsonl | 上面 permission-roundtrip 那次 `claude -p` 落盘的会话文件，同样裁剪 | sdk-cli 过滤 |
+
+## A8 补充（2026-09-24，`npm run record` 录制，探针会话在 /tmp）
+| 文件 | 内容 | 用途 |
+|---|---|---|
+| claude/fork-session.ndjson | 先在 /tmp 新建探针会话（只回复"收到"），再 `--resume <它> --fork --prompt 只回复两个字：好的`：全程 `session_id` 为新 id，原会话文件不变 | fork 取新 id、先发 session.upsert |
