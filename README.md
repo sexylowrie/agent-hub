@@ -16,8 +16,8 @@
 ## 状态
 - [x] M0 骨架 + Claude
 - [x] M1 Codex + Cursor
-- [ ] M2 PWA
-- [ ] M3 常驻与打磨
+- [x] M2 PWA
+- [x] M3 常驻与打磨（飞书桥不做；iOS 主屏幕推送与合盖 30 分钟未实测，见 `docs/spec/01-verified-facts.md`）
 
 ## 使用
 ```bash
