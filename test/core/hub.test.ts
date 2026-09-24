@@ -90,7 +90,10 @@ test('配对码一次性、过期无效；token 只存哈希', () => {
   assert.equal(authenticate(store, r.token)?.name, 'cli')
   const old = createPairingCode(store, Date.now() - 6 * 60_000)
   assert.equal(pairDevice(store, old.code, 'late'), undefined)
-  store.revokeDevice('cli')
+  assert.equal(store.renameDevice(r.deviceId, 'iPhone'), true)
+  assert.equal(store.listDevices()[0].name, 'iPhone')
+  assert.equal(store.renameDevice('no-such', 'x'), false)
+  store.revokeDevice('iPhone')
   assert.equal(authenticate(store, r.token), undefined)
 })
 
@@ -223,6 +226,26 @@ test('审批：请求 → 决定 → 回执；重复决定被拒', async () => {
   const a = store.getApproval(req.approvalId)!
   assert.equal(a.status, 'allowed')
   assert.equal(a.decidedBy, 'dev1')
+})
+
+test('只读查询：turnOf 跟随轮次；listPendingApprovals 跨会话列 pending 且未过期、不带 payload', async () => {
+  const { store, hub, seen } = setup('claude/permission-roundtrip.ndjson')
+  hub.applyScan([view('idle')])
+  assert.equal(hub.turnOf(`claude:${SID}`), undefined)
+  const r = hub.send(`claude:${SID}`, 'p') as any
+  assert.deepEqual(hub.turnOf(`claude:${SID}`), { turnId: r.data.turnId })
+  await waitFor(() => seen.some((e) => e.type === 'approval.request'))
+  const now = Date.now()
+  store.insertApproval({ id: 'old', sessionId: 'claude:other', turnId: null, kind: 'command', summary: 's', payload: '{}', createdAt: now - 10, expiresAt: now - 1 })
+  const list = hub.listPendingApprovals()
+  assert.equal(list.length, 1)
+  assert.equal(list[0].sessionId, `claude:${SID}`)
+  assert.equal(list[0].turnId, r.data.turnId)
+  assert.equal('payload' in list[0], false)
+  hub.approve(list[0].id, 'allow', 'dev1')
+  assert.deepEqual(hub.listPendingApprovals(), [])
+  await waitFor(() => !hub.isBusy(`claude:${SID}`))
+  assert.equal(hub.turnOf(`claude:${SID}`), undefined)
 })
 
 test('审批超时自动拒绝', async () => {

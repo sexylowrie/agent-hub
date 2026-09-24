@@ -271,6 +271,14 @@ export class Store {
     return rows.map(toApproval)
   }
 
+  /** 所有会话里仍待处理（pending 且未过期）的审批 */
+  allPendingApprovals(now = Date.now()): ApprovalRow[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM approvals WHERE status='pending' AND expires_at>? ORDER BY created_at`)
+      .all(now) as Row[]
+    return rows.map(toApproval)
+  }
+
   /** 只在 pending 且未过期时生效；返回是否成功 */
   decideApproval(id: string, decision: Decision, by: string, now = Date.now()): boolean {
     const status = decision === 'deny' ? 'denied' : 'allowed'
@@ -349,6 +357,11 @@ export class Store {
     return Number(
       this.db.prepare('UPDATE devices SET revoked=1 WHERE (name=? OR id=?) AND revoked=0').run(nameOrId, nameOrId).changes,
     )
+  }
+
+  /** 按 id 改名，返回是否改到 */
+  renameDevice(id: string, name: string): boolean {
+    return this.db.prepare('UPDATE devices SET name=? WHERE id=?').run(name, id).changes === 1
   }
 
   // ---- pairing codes ----

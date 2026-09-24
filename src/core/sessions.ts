@@ -2,9 +2,12 @@ import { randomUUID } from 'node:crypto'
 import type { AgentAdapter, ApprovalRequest } from '../adapters/types.ts'
 import type { Bus } from './bus.ts'
 import type { Decision, Holder, HubEvent, SessionState, SessionView, Vendor } from './events.ts'
-import type { Store } from './store.ts'
+import type { ApprovalRow, Store } from './store.ts'
 
 /** 失败时 code=ATTACHED 会带上 holder（会话被谁开着），供上层给出 inject / takeover / fork 等显式动作 */
+/** 待审批列表项：不含厂商原始请求（payload） */
+export type PendingApprovalView = Pick<ApprovalRow, 'id' | 'sessionId' | 'turnId' | 'kind' | 'summary' | 'createdAt' | 'expiresAt'>
+
 export type AckResult = { ok: true; data?: unknown } | { ok: false; code: string; message: string; holder?: Holder }
 
 export interface HubOpts {
@@ -82,6 +85,19 @@ export class Hub {
 
   isBusy(sessionId: string): boolean {
     return this.inFlight.has(sessionId) || this.store.hasRunningTurn(sessionId)
+  }
+
+  /** 进行中的 Hub 轮次（进程内）；start / fork 拿到新 id 之前挂在 pending:<turnId> 上 */
+  turnOf(sessionId: string): { turnId: string } | undefined {
+    const f = this.inFlight.get(sessionId)
+    return f ? { turnId: f.turnId } : undefined
+  }
+
+  /** 所有会话里 pending 且未过期的审批，按创建时间排序 */
+  listPendingApprovals(): PendingApprovalView[] {
+    return this.store
+      .allPendingApprovals()
+      .map(({ id, sessionId, turnId, kind, summary, createdAt, expiresAt }) => ({ id, sessionId, turnId, kind, summary, createdAt, expiresAt }))
   }
 
   // ---------- Scanner 输入 ----------
