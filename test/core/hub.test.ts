@@ -12,7 +12,6 @@ import { Hub } from '../../src/core/sessions.ts'
 import { Store } from '../../src/core/store.ts'
 import { createPairingCode, pairDevice, authenticate, hashToken } from '../../src/gateway/auth.ts'
 import { startGateway } from '../../src/gateway/server.ts'
-import type { HubConfig } from '../../src/config.ts'
 import { stdoutLines } from '../helpers.ts'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -297,8 +296,7 @@ test('onBusyChange：轮次开始 1、结束 0', async () => {
 test('Gateway：REST 鉴权 + WS hello/send/审批/SESSION_BUSY', async () => {
   const { store, bus, hub } = setup('claude/permission-roundtrip.ndjson')
   hub.applyScan([view('idle'), view('running', 'busy-1'), { ...view('attached', 'att-1'), holder: { kind: 'cli', pid: 4242 } }])
-  const cfg = { listen: { host: '127.0.0.1', port: 0 }, allowedCwds: ['/tmp'] } as unknown as HubConfig
-  const server = await startGateway({ cfg, store, bus, hub, version: 't', vendors: () => ({}) as any, log: () => {} })
+  const server = await startGateway({ allowedCwds: () => ['/tmp'], store, bus, hub, version: 't', vendors: () => ({}) as any, log: () => {} }, { host: '127.0.0.1', port: 0 })
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   try {
     assert.equal((await fetch(`${base}/api/sessions`)).status, 401)

@@ -12,7 +12,6 @@ import { Hub } from '../../src/core/sessions.ts'
 import { Store } from '../../src/core/store.ts'
 import { createPairingCode, pairDevice } from '../../src/gateway/auth.ts'
 import { startGateway } from '../../src/gateway/server.ts'
-import type { HubConfig } from '../../src/config.ts'
 
 async function setup(adapters: Partial<Record<'claude', AgentAdapter>> = {}) {
   const webRoot = mkdtempSync(join(tmpdir(), 'hub-web-'))
@@ -24,8 +23,7 @@ async function setup(adapters: Partial<Record<'claude', AgentAdapter>> = {}) {
   const store = new Store(':memory:')
   const bus = new Bus()
   const hub = new Hub({ store, bus, adapters, approvalExpireMs: 60_000, isCwdAllowed: () => true, log: () => {} })
-  const cfg = { listen: { host: '127.0.0.1', port: 0 }, allowedCwds: ['/tmp'] } as unknown as HubConfig
-  const server = await startGateway({ cfg, store, bus, hub, version: 't', vendors: () => ({}) as any, webRoot, log: () => {} })
+  const server = await startGateway({ allowedCwds: () => ['/tmp'], store, bus, hub, version: 't', vendors: () => ({}) as any, webRoot, log: () => {} }, { host: '127.0.0.1', port: 0 })
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const { token } = pairDevice(store, createPairingCode(store).code, 'test')!
   return { store, hub, server, base, token, close: () => (server.closeAllConnections(), server.close()) }

@@ -4,7 +4,7 @@ import { extname, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { Hono } from 'hono'
 import { WebSocketServer, type WebSocket } from 'ws'
-import type { BinaryStatus, HubConfig } from '../config.ts'
+import type { BinaryStatus } from '../config.ts'
 import type { Bus, Published } from '../core/bus.ts'
 import type { HistoryItem, SessionView, Vendor } from '../core/events.ts'
 import type { AckResult, Hub } from '../core/sessions.ts'
@@ -14,7 +14,8 @@ import { BROADCAST_TYPES, ClientMessage, WS_CLOSE_UNAUTHORIZED } from './protoco
 import type { WebPush } from './push.ts'
 
 export interface GatewayDeps {
-  cfg: HubConfig
+  /** 新建会话允许的目录（已登录的 /api/health 返回给客户端做提示） */
+  allowedCwds: () => string[]
   store: Store
   bus: Bus
   hub: Hub
@@ -25,8 +26,19 @@ export interface GatewayDeps {
   /** PWA 构建产物目录（web/dist）；不存在时只提供 API */
   webRoot?: string
   push?: WebPush
+  /** 鉴权（REST Bearer 与 WS hello 共用）；缺省按设备 token 查库。嵌入方可先认自己的凭据再回落到 authenticate(store, token) */
+  authenticate?: (token: string | undefined) => DeviceRow | undefined
   log?: (msg: string) => void
 }
+
+export interface WsOptions {
+  /** WS 路径，默认 /ws */
+  wsPath?: string
+  /** 路径不匹配的 upgrade 直接断开（默认 true）；同一 server 上还有别的 WS 处理器时设为 false */
+  destroyUnmatched?: boolean
+}
+
+const authOf = (d: GatewayDeps) => d.authenticate ?? ((token: string | undefined) => authenticate(d.store, token))
 
 type Env = { Variables: { device: DeviceRow } }
 
@@ -38,6 +50,7 @@ const toInt = (v: string | undefined, d?: number) => {
 export function createApp(d: GatewayDeps) {
   const { store } = d
   const log = d.log ?? ((m) => console.log(`[gateway] ${m}`))
+  const auth = authOf(d)
   const app = new Hono<Env>()
 
   app.post('/api/pair', async (c) => {
@@ -55,17 +68,17 @@ export function createApp(d: GatewayDeps) {
   })
 
   app.get('/api/health', (c) => {
-    const authed = !!authenticate(store, bearer(c.req.header('authorization')))
+    const authed = !!auth(bearer(c.req.header('authorization')))
     return c.json({
       ok: true,
       version: d.version,
       vendors: d.vendors(),
-      ...(authed ? { allowedCwds: d.cfg.allowedCwds, ...(d.push ? { push: { vapidPublicKey: d.push.vapid.publicKey } } : {}) } : {}),
+      ...(authed ? { allowedCwds: d.allowedCwds(), ...(d.push ? { push: { vapidPublicKey: d.push.vapid.publicKey } } : {}) } : {}),
     })
   })
 
   app.use('/api/*', async (c, next) => {
-    const device = authenticate(store, bearer(c.req.header('authorization')))
+    const device = auth(bearer(c.req.header('authorization')))
     if (!device) return c.json({ error: 'unauthorized' }, 401)
     c.set('device', device)
     await next()
@@ -210,8 +223,11 @@ interface Conn {
   startTurns: Set<string>
 }
 
-export function attachWs(server: Server, d: GatewayDeps) {
+export function attachWs(server: Server, d: GatewayDeps, opts: WsOptions = {}) {
   const { store, bus, hub } = d
+  const wsPath = opts.wsPath ?? '/ws'
+  const destroyUnmatched = opts.destroyUnmatched ?? true
+  const auth = authOf(d)
   const log = d.log ?? ((m) => console.log(`[gateway] ${m}`))
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 })
   const conns = new Set<Conn>()
@@ -219,7 +235,10 @@ export function attachWs(server: Server, d: GatewayDeps) {
   const deviceSubs = new Map<string, Set<string>>()
 
   server.on('upgrade', (req, socket, head) => {
-    if (new URL(req.url ?? '/', 'http://x').pathname !== '/ws') return socket.destroy()
+    if (new URL(req.url ?? '/', 'http://x').pathname !== wsPath) {
+      if (destroyUnmatched) socket.destroy()
+      return
+    }
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req))
   })
 
@@ -266,7 +285,7 @@ export function attachWs(server: Server, d: GatewayDeps) {
       }
       const m = parsed.data
       if (m.t === 'hello') {
-        const device = authenticate(store, m.token)
+        const device = auth(m.token)
         if (!device) {
           log('WS hello 鉴权失败')
           return ws.close(WS_CLOSE_UNAUTHORIZED, 'unauthorized')
@@ -320,12 +339,13 @@ export function attachWs(server: Server, d: GatewayDeps) {
   return wss
 }
 
-export function startGateway(d: GatewayDeps): Promise<Server> {
+/** 独立运行：自起 node:http，挂 REST 与 /ws（嵌入方用 createApp / attachWs 自己挂） */
+export function startGateway(d: GatewayDeps, listen: { host: string; port: number }): Promise<Server> {
   const app = createApp(d)
   const server = createServer((req, res) => void toFetch(app, req, res))
   attachWs(server, d)
   return new Promise((resolve, reject) => {
     server.once('error', reject)
-    server.listen(d.cfg.listen.port, d.cfg.listen.host, () => resolve(server))
+    server.listen(listen.port, listen.host, () => resolve(server))
   })
 }

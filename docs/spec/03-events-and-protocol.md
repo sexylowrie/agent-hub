@@ -39,7 +39,7 @@ interface SessionView {
 | turn.done | `result` | `turn/completed{turn.status}` | `result` |
 | error | `result.is_error` / 进程非 0 退出 | `error` 通知 / `turn.status=failed` | `result.is_error` / 非 0 退出 |
 
-## WebSocket 协议（/ws）
+## WebSocket 协议（/ws；嵌入时路径由 `attachWs` 的 `wsPath` 指定，见 06）
 ```ts
 // 客户端 → Hub
 { t: 'hello', token: string, sinceSeq?: number }

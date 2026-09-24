@@ -139,7 +139,7 @@ async function serve() {
   stops.push(attachPushNotifier(bus, store, push))
 
   const server = await startGateway({
-    cfg,
+    allowedCwds: () => cfg.allowedCwds,
     store,
     bus,
     hub,
@@ -148,7 +148,7 @@ async function serve() {
     history: (s, limit) => sources[s.vendor].history?.(s.vendorSessionId, limit),
     webRoot: WEB_ROOT,
     push,
-  })
+  }, cfg.listen)
   if (!existsSync(join(WEB_ROOT, 'index.html'))) console.log(`[gateway] 未找到 PWA 构建产物 ${WEB_ROOT}，先 npm run web:build`)
   console.log(`[gateway] 监听 http://${cfg.listen.host}:${cfg.listen.port}  数据目录 ${cfg.dataDir}`)
   if (cfg.publicUrl) console.log(`[gateway] 手机访问 ${cfg.publicUrl}`)
