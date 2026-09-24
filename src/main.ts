@@ -1,154 +1,50 @@
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
-import { loadConfig, isCwdAllowed, probeBinaries, type BinaryStatus } from './config.ts'
-import { Bus } from './core/bus.ts'
-import { sessionKey, type SessionView, type Vendor } from './core/events.ts'
-import { Hub } from './core/sessions.ts'
+import { join } from 'node:path'
+import { loadConfig } from './config.ts'
 import { Store } from './core/store.ts'
-import { ClaudeAdapter } from './adapters/claude.ts'
-import { CodexAdapter } from './adapters/codex.ts'
-import { CursorAdapter } from './adapters/cursor.ts'
-import { ClaudeScanner } from './scanner/claude.ts'
-import { CodexScanner } from './scanner/codex.ts'
-import { CursorScanner } from './scanner/cursor.ts'
-import { claudeSource, codexSource, cursorSource, type ScanSource } from './scanner/sources.ts'
-import { every, watchDirs } from './scanner/watcher.ts'
 import { createPairingCode } from './gateway/auth.ts'
 import { startGateway } from './gateway/server.ts'
 import { attachPushNotifier } from './gateway/notify.ts'
 import { WebPush, loadVapid } from './gateway/push.ts'
 import { KeepAwake } from './power.ts'
+import { startHub } from './runtime.ts'
 
 const VERSION: string = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf8')).version
 const WEB_ROOT = join(import.meta.dirname, '..', 'web', 'dist')
 
-function pidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM'
-  }
-}
-
-/** 对账时只结束确实是厂商 CLI 的进程（防 pid 被复用后误杀） */
-function stopVendorProcess(cfg: ReturnType<typeof loadConfig>) {
-  const names = new Set(Object.values(cfg.binaries).map((b) => basename(b)))
-  return (pid: number) => {
-    let cmd = ''
-    try {
-      cmd = execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 }).trim()
-    } catch {
-      return
-    }
-    const argv0 = basename(cmd.split(/\s+/)[0] ?? '')
-    const isVendor = names.has(argv0) || cmd.split(/\s+/).slice(0, 3).some((a) => names.has(basename(a)))
-    if (!isVendor) return console.log(`[hub] 对账：pid ${pid} 已不是厂商进程（${cmd.slice(0, 80)}），不动它`)
-    try {
-      process.kill(pid, 'SIGTERM')
-    } catch {
-      // 已退出
-    }
-  }
-}
-
 async function serve() {
   const cfg = loadConfig()
-  const store = Store.open(cfg.dataDir)
-  const bus = new Bus()
   const keepAwake = new KeepAwake(cfg.power.keepAwake)
   keepAwake.start()
 
-  let vendors: Record<Vendor, BinaryStatus> = await probeBinaries(cfg)
-  for (const [v, s] of Object.entries(vendors)) {
-    console.log(`[config] ${v}: ${s.ok ? `${s.bin} ${s.version}` : `不可用 ${s.bin} (${s.error})`}`)
-  }
-
-  let hub: Hub
-  const isHub = (vendor: Vendor) => (id: string) => hub.isHubSession(sessionKey(vendor, id))
-  const codex = codexSource(
-    new CodexScanner({ recentDays: cfg.scanner.recentDays, quietMs: cfg.scanner.idleQuietMs.codex, attachedQuietMs: cfg.scanner.attachedQuietMs, isHubSession: isHub('codex') }),
-    cfg.codex.model,
-  )
-  const sources: Record<Vendor, ScanSource> = {
-    claude: claudeSource(new ClaudeScanner({ recentDays: cfg.scanner.recentDays, quietMs: cfg.scanner.idleQuietMs.claude, attachedQuietMs: cfg.scanner.attachedQuietMs, isHubSession: isHub('claude') })),
-    codex,
-    cursor: cursorSource(new CursorScanner({ recentDays: cfg.scanner.recentDays, quietMs: cfg.scanner.idleQuietMs.cursor, isHubSession: isHub('cursor') })),
-  }
-
-  hub = new Hub({
-    store,
-    bus,
-    adapters: {
-      claude: new ClaudeAdapter(cfg.binaries.claude),
-      codex: new CodexAdapter({ bin: cfg.binaries.codex, model: cfg.codex.model, threadInfo: codex.threadInfo }),
-      cursor: new CursorAdapter(cfg.binaries.cursor),
-    },
-    approvalExpireMs: cfg.approval.expireSeconds * 1000,
-    isCwdAllowed: (cwd) => isCwdAllowed(cfg, cwd),
-    refresh: (s: SessionView) => sources[s.vendor].refresh(s.vendorSessionId),
-    beforeTurnEnd: (s) => sources[s.vendor].beforeTurnEnd?.(s.vendorSessionId),
+  const rt = await startHub({
+    dataDir: cfg.dataDir,
+    binaries: cfg.binaries,
+    codexModel: cfg.codex.model,
+    allowedCwds: cfg.allowedCwds,
+    scanner: cfg.scanner,
+    approvalExpireSeconds: cfg.approval.expireSeconds,
     onBusyChange: (n) => keepAwake.onBusyChange(n),
   })
-
-  hub.reconcileOrphans(pidAlive, stopVendorProcess(cfg))
-
-  // 首次全量扫描；记录各文件 offset，之后只推增量
-  const stops: (() => void)[] = []
-  for (const src of Object.values(sources)) {
-    const t0 = Date.now()
-    const initial = src.init()
-    hub.applyScan(initial)
-    console.log(`[scanner] ${src.vendor}: ${initial.length} 个会话（${Date.now() - t0}ms）`)
-    const quiet = cfg.scanner.idleQuietMs[src.vendor]
-    const onFiles = (files: Set<string>) => {
-      try {
-        const r = src.onFiles(files)
-        hub.ingestProgress(r.progress)
-        if (r.views.length) hub.applyScan(r.views)
-        if (r.later) {
-          const later = r.later
-          const t = setTimeout(() => hub.applyScan(later()), quiet + 200)
-          t.unref()
-        }
-      } catch (e) {
-        console.error(`[scanner] ${src.vendor} 处理变更失败: ${(e as Error).message}`)
-      }
-    }
-    stops.push(watchDirs(src.watchDirs(), onFiles, src.watchDebounceMs))
-    if (src.pollFiles) {
-      const poll = src.pollFiles.bind(src)
-      poll() // 记下初始签名
-      stops.push(
-        every(src.pollMs ?? 1000, () => {
-          const files = poll()
-          if (files.length) onFiles(new Set(files))
-        }),
-      )
-    }
-  }
-  stops.push(
-    every(cfg.scanner.reconcileSeconds * 1000, () => {
-      for (const src of Object.values(sources)) hub.applyScan(src.scanAll())
-      void probeBinaries(cfg).then((v) => (vendors = v))
-    }),
-  )
+  const { hub, store, bus } = rt
 
   const push = new WebPush(store, loadVapid(cfg.dataDir), cfg.push.subject)
-  stops.push(attachPushNotifier(bus, store, push))
+  const stopPush = attachPushNotifier(bus, store, push)
 
-  const server = await startGateway({
-    allowedCwds: () => cfg.allowedCwds,
-    store,
-    bus,
-    hub,
-    version: VERSION,
-    vendors: () => vendors,
-    history: (s, limit) => sources[s.vendor].history?.(s.vendorSessionId, limit),
-    webRoot: WEB_ROOT,
-    push,
-  }, cfg.listen)
+  const server = await startGateway(
+    {
+      allowedCwds: () => cfg.allowedCwds,
+      store,
+      bus,
+      hub,
+      version: VERSION,
+      vendors: rt.vendors,
+      history: rt.history,
+      webRoot: WEB_ROOT,
+      push,
+    },
+    cfg.listen,
+  )
   if (!existsSync(join(WEB_ROOT, 'index.html'))) console.log(`[gateway] 未找到 PWA 构建产物 ${WEB_ROOT}，先 npm run web:build`)
   console.log(`[gateway] 监听 http://${cfg.listen.host}:${cfg.listen.port}  数据目录 ${cfg.dataDir}`)
   if (cfg.publicUrl) console.log(`[gateway] 手机访问 ${cfg.publicUrl}`)
@@ -159,14 +55,10 @@ async function serve() {
     if (closing) return
     closing = true
     console.log(`[hub] 收到 ${sig}，退出`)
-    for (const stop of stops) stop()
-    hub.abortAll()
+    stopPush()
     keepAwake.release()
     server.close()
-    setTimeout(() => {
-      store.close()
-      process.exit(0)
-    }, 300).unref()
+    void rt.stop().finally(() => process.exit(0))
   }
   process.on('SIGINT', () => shutdown('SIGINT'))
   process.on('SIGTERM', () => shutdown('SIGTERM'))

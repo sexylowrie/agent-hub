@@ -63,18 +63,18 @@ export function loadConfig(file = process.env.HUB_CONFIG ?? 'hub.config.json'): 
   return cfg
 }
 
-/** cwd 是否落在 allowedCwds 某个前缀内（按真实路径比较）。 */
-export function isCwdAllowed(cfg: HubConfig, cwd: string): boolean {
+/** cwd 是否落在 roots 某个目录内（展开 ~ 后按真实路径比较，防 .. 与软链逃逸）。 */
+export function isCwdAllowed(roots: readonly string[], cwd: string): boolean {
   let real: string
   try {
     real = realpathSync(expandHome(cwd))
   } catch {
     return false
   }
-  return cfg.allowedCwds.some((root) => {
+  return roots.some((root) => {
     let r: string
     try {
-      r = realpathSync(root)
+      r = realpathSync(expandHome(root))
     } catch {
       return false
     }
@@ -98,11 +98,11 @@ function probe(bin: string): Promise<BinaryStatus> {
   })
 }
 
-export async function probeBinaries(cfg: HubConfig): Promise<Record<Vendor, BinaryStatus>> {
+export async function probeBinaries(binaries: Record<Vendor, string>): Promise<Record<Vendor, BinaryStatus>> {
   const [claude, codex, cursor] = await Promise.all([
-    probe(cfg.binaries.claude),
-    probe(cfg.binaries.codex),
-    probe(cfg.binaries.cursor),
+    probe(binaries.claude),
+    probe(binaries.codex),
+    probe(binaries.cursor),
   ])
   return { claude, codex, cursor }
 }

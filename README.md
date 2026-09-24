@@ -236,6 +236,8 @@ npm run gen:codex      # 重新生成 Codex app-server 协议 TS 类型
 agent-hub/
 ├── src/
 │   ├── main.ts               # 入口：serve / pair / devices
+│   ├── index.ts              # 库入口（见「作为库使用」）
+│   ├── runtime.ts            # startHub()：装配 Store / Hub / Scanner 监听与对账
 │   ├── config.ts             # 配置校验、二进制探测
 │   ├── power.ts              # 按需 caffeinate
 │   ├── core/                 # 统一事件、SQLite、会话与轮次调度（不含任何厂商细节）

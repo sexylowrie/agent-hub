@@ -21,10 +21,12 @@
 ```
 agent-hub/
 ├── src/
-│   ├── main.ts
+│   ├── main.ts                # CLI 薄壳：serve / pair / devices
+│   ├── index.ts               # 库入口（v0.2，被 dougan 等嵌入方引用）
+│   ├── runtime.ts             # startHub()：Store / Bus / Hub / Scanner 监听与对账的装配，配置以参数传入
 │   ├── config.ts              # 读 hub.config.json，展开 ~，校验二进制存在与版本
 │   ├── core/{events,bus,store,sessions}.ts
-│   ├── scanner/{claude,codex,cursor,watcher}.ts
+│   ├── scanner/{claude,codex,cursor,sources,tmux,watcher}.ts
 │   ├── adapters/{types,claude,codex,cursor}.ts + codex.types.ts(生成)
 │   ├── gateway/{server,auth,protocol}.ts
 │   └── bridges/feishu.ts      # 可选，M3
