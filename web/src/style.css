@@ -138,3 +138,22 @@ h2 { font-size: 14px; margin: 0 0 8px; color: var(--mute); font-weight: 500; }
 .origin.desktop { color: #c9b8ff; border-color: rgba(201, 184, 255, .4); }
 .origin.cli { color: #9fd7c3; border-color: rgba(159, 215, 195, .4); }
 .origin.hub { color: #8db4ff; border-color: rgba(141, 180, 255, .4); }
+
+/* 会话列表：按状态分组，组可折叠，组内竖排 */
+.chip .n { opacity: .6; margin-left: 4px; }
+.group { margin-bottom: 6px; }
+.group-head { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: 0; padding: 10px 2px; text-align: left; border-radius: 0; }
+.group-name { font-weight: 600; font-size: 14px; flex: none; }
+.group .caret { display: inline-block; transition: transform .15s; }
+.group.collapsed .caret { transform: rotate(-90deg); }
+.count { flex: none; font-size: 12px; color: var(--mute); background: var(--panel2); border-radius: 999px; padding: 0 8px; }
+.peek { flex: 1; min-width: 0; font-size: 12px; color: var(--mute); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.sdot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--mute); }
+.sdot.awaiting { background: var(--warn); }
+.sdot.running { background: var(--accent); }
+.sdot.idle { background: var(--ok); }
+.sdot.error { background: var(--err); }
+.group .sessions { margin-top: 0; }
+.group-empty { color: var(--mute); font-size: 13px; margin: 0 0 8px 20px; }
+.more { display: block; width: 100%; margin: 0 0 8px; background: none; border: 1px dashed var(--line); border-radius: 8px; padding: 7px; color: var(--mute); font-size: 13px; }
+.row-meta .cwd { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; }

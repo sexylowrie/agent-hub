@@ -5,7 +5,12 @@ Vite + Preact + TypeScript；`web/` 独立 package；构建产物由 Hub 用 hon
 
 ## 页面
 1. **配对页**：PWA 由 Hub 自己托管，host 即 `location.host`（只读显示）；输入 6 位码与设备名 → 存 token 到 localStorage。`npm run hub -- pair` 会打印 `http://<host>/#/pair?code=<code>`，打开即预填。
-2. **会话列表**：按 `vendorUpdatedAt ?? updatedAt` 倒序（`updatedAt` 每次扫描都会变，不适合排序）；行：厂商色条、标题、来源标签（`origin`：desktop→GUI、cli→CLI、hub→Hub，详情页标题栏同样显示）、cwd 末两段、状态徽标（运行中/空闲/待审批/已归档/不可续接）、preview。顶部筛选厂商与状态。运行中的行 preview 实时刷新。
+2. **会话列表**（设计稿 `docs/mockups/session-list-grouped.html` 方案 C，2026-09-24 定稿）：
+   - 顶部只有一排厂商筛选（全部 / Claude / Codex / Cursor，带会话数），记在 localStorage；不再单独筛状态。
+   - 按状态分组，从上到下：**待审批 → 运行中 → 可续聊 → 出错 → 其他**。归组规则（`web/src/util.ts` 的 `groupOf`）：`awaiting_approval` / `running` / `error` 各自成组；`idle` 且可续接且未归档为「可续聊」；其余（已归档、不可续接、unknown）进「其他」，行上保留"已归档 / 不可续接"徽标。
+   - 组可折叠，**默认只展开一个组**：按上面的顺序第一个有会话的组。用户手动展开/折叠后按用户的来（sessionStorage，本次打开期间有效）。折叠的组标题后显示前 3 个会话标题。
+   - 组内**竖排**（横排在"可续聊"上百个时没法用，见设计稿对比），按 `vendorUpdatedAt ?? updatedAt` 倒序（`updatedAt` 每次扫描都会变，不适合排序）；每组先显示 5 个，超出的点「展开全部 N 个」。
+   - 行：厂商色条、标题、来源标签（`origin`：desktop→GUI、cli→CLI、hub→Hub，详情页标题栏同样显示）、cwd 末两段、相对时间、preview。运行中的行 preview 随 `session.upsert` 实时刷新，状态变化时行会移到对应组。
 3. **会话详情**：消息流（user/assistant 气泡）、工具调用折叠块（name + input 摘要，展开看 output）、审批卡片（允许/拒绝/本会话允许 + 倒计时）。底部输入框：`running` / `awaiting_approval` / 不可续聊时禁用并显示原因（`error` 不禁用：Hub 轮次失败后会话是 error，send 前 Hub 会实时复核状态，由服务端决定）；Cursor 会话多一个"放行执行(--force)"开关，默认关。Hub 轮次进行中显示"中断"。
 4. **新建**：厂商单选、cwd 下拉（来自 `/api/health` 返回的 allowedCwds）+ 可选子目录、首句；ack 后等 `turn.started` 拿到真实会话 id 再跳详情。
 5. **设置**：Hub 版本与三家二进制状态、推送开关（M3）、退出配对。

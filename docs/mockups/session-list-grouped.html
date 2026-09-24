@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>会话列表 · 按状态分组（mockup）</title>
+<style>
+  :root {
+    --bg: #111418; --panel: #1a1e24; --panel2: #232830; --line: #2c323b; --fg: #e6e8eb; --mute: #8b929c;
+    --accent: #4f8cff; --warn: #f0a93b; --err: #ef5a5a; --ok: #3ecf8e;
+    --claude: #d97757; --codex: #10a37f; --cursor: #8b9cff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0a0c0f; color: var(--fg); font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+
+  /* 外层：桌面上看时居中放两个手机框 */
+  .stage { display: flex; gap: 24px; justify-content: center; align-items: flex-start; padding: 24px; flex-wrap: wrap; }
+  .variant-title { text-align: center; color: var(--mute); font-size: 13px; margin-bottom: 8px; }
+  .variant-title b { color: var(--fg); }
+  .phone { width: 390px; height: 844px; background: var(--bg); border-radius: 36px; border: 1px solid #2a2f37; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  .screen { flex: 1; overflow-y: auto; padding: 0 12px 24px; }
+
+  .bar { display: flex; align-items: center; gap: 8px; padding: 18px 0 12px; }
+  .bar h1 { font-size: 18px; margin: 0; }
+  .grow { flex: 1; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); }
+  .ghost { background: none; border: 0; color: var(--mute); }
+  .primary { background: var(--accent); border: 1px solid var(--accent); color: #fff; border-radius: 8px; padding: 5px 12px; }
+
+  .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none; }
+  .chip { flex: none; padding: 4px 12px; border-radius: 999px; font-size: 13px; color: var(--mute); background: var(--panel2); border: 1px solid var(--line); }
+  .chip.on { color: var(--fg); border-color: var(--accent); background: rgba(79,140,255,.15); }
+  .chip .n { opacity: .6; margin-left: 4px; }
+
+  .card { background: var(--panel); border-radius: 10px; padding: 10px 12px 10px 14px; border-left: 4px solid var(--line); }
+  .card.claude { border-left-color: var(--claude); }
+  .card.codex { border-left-color: var(--codex); }
+  .card.cursor { border-left-color: var(--cursor); }
+  .card .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .meta { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--mute); margin-top: 2px; }
+  .preview { font-size: 13px; color: var(--mute); margin-top: 4px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .origin { font-size: 10px; line-height: 16px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--line); }
+  .origin.GUI { color: #c9b8ff; border-color: rgba(201,184,255,.4); }
+  .origin.CLI { color: #9fd7c3; border-color: rgba(159,215,195,.4); }
+  .origin.Hub { color: #8db4ff; border-color: rgba(141,180,255,.4); }
+
+  .sdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .s-awaiting { background: var(--warn); } .s-running { background: var(--accent); } .s-idle { background: var(--ok); }
+  .s-error { background: var(--err); } .s-other { background: var(--mute); }
+  .count { font-size: 12px; color: var(--mute); background: var(--panel2); border-radius: 999px; padding: 0 8px; }
+  .caret { color: var(--mute); transition: transform .15s; display: inline-block; }
+
+  /* ---------- A：横向看板 ---------- */
+  .board { display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 8px; margin: 0 -12px; padding-left: 12px; padding-right: 12px; scrollbar-width: none; }
+  .col { flex: none; width: 80%; scroll-snap-align: start; background: #15181d; border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; max-height: 680px; transition: width .2s; }
+  .col-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: none; border: 0; text-align: left; width: 100%; }
+  .col-head .name { font-weight: 600; font-size: 14px; }
+  .col-body { overflow-y: auto; padding: 0 8px 8px; display: flex; flex-direction: column; gap: 8px; }
+  .col.collapsed { width: 46px; }
+  .col.collapsed .col-head { flex-direction: column; padding: 12px 0; gap: 10px; height: 100%; }
+  .col.collapsed .col-head .name { writing-mode: vertical-rl; letter-spacing: 2px; }
+  .col.collapsed .col-head .caret { transform: rotate(-90deg); }
+  .col.collapsed .col-body { display: none; }
+
+  /* ---------- B：分组横滑 ---------- */
+  .group { margin-bottom: 10px; }
+  .group-head { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: 0; padding: 8px 2px; text-align: left; }
+  .group-head .name { font-weight: 600; font-size: 14px; }
+  .group.collapsed .caret { transform: rotate(-90deg); }
+  .group.collapsed .rail { display: none; }
+  .group.collapsed .peek { display: inline; }
+  .peek { display: none; font-size: 12px; color: var(--mute); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  .rail { display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x mandatory; margin: 0 -12px; padding: 2px 12px 6px; scrollbar-width: none; }
+  .rail .card { flex: none; width: 78%; scroll-snap-align: start; min-height: 112px; }
+
+  /* ---------- C：分组竖排 ---------- */
+  .list { display: flex; flex-direction: column; gap: 8px; }
+  .group.collapsed .list, .group.collapsed .more { display: none; }
+  .more { display: block; width: 100%; margin-top: 6px; background: none; border: 1px dashed var(--line); border-radius: 8px; padding: 7px; color: var(--mute); font-size: 13px; }
+
+  .note { max-width: 820px; margin: 0 auto 8px; color: var(--mute); font-size: 13px; padding: 0 24px; }
+  .note b { color: var(--fg); }
+</style>
+</head>
+<body>
+  <div class="note" style="padding-top:20px">
+    <b>2026-09-24 定稿：方案 C</b>，且默认只展开第一个有会话的组（本稿里的"默认展开前三组"是评审时的初版）。实现见 docs/spec/07-pwa.md。<br />
+    <b>mockup，数据是假的</b>。状态分组顺序：待审批 → 运行中 → 可续聊 → 出错 → 其他（已归档 / 不可续接 / 未知）。
+    默认展开前三组，「出错」「其他」折叠。点组标题折叠 / 展开；厂商筛选对所有组生效，数字随之变化。
+  </div>
+  <div class="stage">
+    <div>
+      <div class="variant-title"><b>A · 横向看板</b>：每个状态一列，左右滑动；折叠后收成一条窄边</div>
+      <div class="phone"><div class="screen" id="A"></div></div>
+    </div>
+    <div>
+      <div class="variant-title"><b>B · 分组横滑</b>：状态组上下排、可折叠；组内卡片左右滑</div>
+      <div class="phone"><div class="screen" id="B"></div></div>
+    </div>
+    <div>
+      <div class="variant-title"><b>C · 分组竖排（推荐）</b>：组内竖排，每组先显示 5 个</div>
+      <div class="phone"><div class="screen" id="C"></div></div>
+    </div>
+  </div>
+
+<script>
+const SESSIONS = [
+  { v: 'claude', o: 'CLI', t: '修复 Cursor IDE 运行判定', cwd: 'AiProject/agent-hub', s: 'awaiting', ago: '刚刚', p: 'Bash: npm test' },
+  { v: 'codex', o: 'GUI', t: '重构支付回调重试', cwd: 'IdeaProjects/pay', s: 'awaiting', ago: '2 分钟前', p: 'apply_patch: src/retry.ts' },
+  { v: 'claude', o: 'CLI', t: 'M2和M3功能建设', cwd: 'AiProject/agent-hub', s: 'running', ago: '刚刚', p: '显示正常。在 spec 里补一句说明，然后提交…' },
+  { v: 'claude', o: 'GUI', t: '重构登录页表单校验', cwd: 'AiProject/demo-app', s: 'running', ago: '刚刚', p: '已按评审意见调整，等你确认。' },
+  { v: 'cursor', o: 'GUI', t: 'demo-app introduction document', cwd: 'AiProject/demo-app', s: 'running', ago: '5 分钟前', p: '正在整理接口命名的对照表…' },
+  { v: 'cursor', o: 'GUI', t: 'TCP congestion control overview', cwd: 'AiProject/demo-app', s: 'idle', ago: '1 小时前', p: '我是 Auto，由 Cursor 设计的 agent 路由器…' },
+  { v: 'claude', o: 'CLI', t: 'M1 启动与范围确认', cwd: 'AiProject/agent-hub', s: 'idle', ago: '1 小时前', p: 'PWA 是 Progressive Web App 的缩写…' },
+  { v: 'codex', o: 'GUI', t: 'hi', cwd: 'AiProject', s: 'idle', ago: '3 小时前', p: 'Hi! What can I help with?' },
+  { v: 'claude', o: 'Hub', t: '只回复两个字：收到', cwd: 'agent-hub/data/m2', s: 'idle', ago: '3 小时前', p: '好了' },
+  { v: 'codex', o: 'CLI', t: '生成月报 SQL', cwd: 'IdeaProjects/report', s: 'error', ago: '昨天', p: '轮次异常：model gpt-5.2 不可用' },
+  { v: 'codex', o: 'GUI', t: 'ChatGPT 聊天线程', cwd: '', s: 'other', ago: '2 天前', p: '不可续接：无本地会话文件' },
+  { v: 'claude', o: 'CLI', t: '旧的调研会话', cwd: 'AiProject/research', s: 'other', ago: '5 天前', p: '已归档' },
+]
+// 按本机实际规模补足「可续聊」到 150 个、「运行中」到 8 个（只用于 C 的数量展示）
+const FILL = (base, k, n) => {
+  const pool = base.filter((x) => x.s === k)
+  const out = []
+  for (let i = 0; out.length + pool.length < n; i++) out.push({ ...pool[i % pool.length], t: `${pool[i % pool.length].t}（${i + 2}）`, ago: `${i + 2} 天前` })
+  return out
+}
+const SESSIONS_REAL = [...SESSIONS, ...FILL(SESSIONS, 'idle', 150), ...FILL(SESSIONS, 'running', 8)]
+const PAGE = 5
+
+const GROUPS = [
+  { k: 'awaiting', name: '待审批' },
+  { k: 'running', name: '运行中' },
+  { k: 'idle', name: '可续聊' },
+  { k: 'error', name: '出错' },
+  { k: 'other', name: '其他' },
+]
+const VENDORS = [['all', '全部'], ['claude', 'Claude'], ['codex', 'Codex'], ['cursor', 'Cursor']]
+const VL = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor' }
+
+function makeState() {
+  return { vendor: 'all', collapsed: new Set(['error', 'other']) }
+}
+
+const card = (x) => `
+  <div class="card ${x.v}">
+    <div class="title">${x.t}</div>
+    <div class="meta"><span>${VL[x.v]}</span><span class="origin ${x.o}">${x.o}</span>${x.cwd ? `<span>${x.cwd}</span>` : ''}<span class="grow"></span><span>${x.ago}</span></div>
+    <div class="preview">${x.p}</div>
+  </div>`
+
+function header(st) {
+  const n = (v) => SESSIONS.filter((x) => v === 'all' || x.v === v).length
+  return `
+    <div class="bar"><span class="dot"></span><h1>会话</h1><span class="grow"></span><button class="ghost">设置</button><button class="primary">新建</button></div>
+    <div class="chips">${VENDORS.map(([k, l]) => `<button class="chip ${st.vendor === k ? 'on' : ''}" data-vendor="${k}">${l}<span class="n">${n(k)}</span></button>`).join('')}</div>`
+}
+
+function renderA(root, st) {
+  const list = SESSIONS.filter((x) => st.vendor === 'all' || x.v === st.vendor)
+  root.innerHTML = header(st) + `<div class="board">${GROUPS.map((g) => {
+    const items = list.filter((x) => x.s === g.k)
+    const c = st.collapsed.has(g.k)
+    return `<section class="col ${c ? 'collapsed' : ''}">
+      <button class="col-head" data-group="${g.k}"><span class="caret">▾</span><span class="sdot s-${g.k}"></span><span class="name">${g.name}</span><span class="count">${items.length}</span></button>
+      <div class="col-body">${items.map(card).join('') || '<div class="preview" style="padding:4px 6px">没有会话</div>'}</div>
+    </section>`
+  }).join('')}</div>`
+}
+
+function renderB(root, st) {
+  const list = SESSIONS.filter((x) => st.vendor === 'all' || x.v === st.vendor)
+  root.innerHTML = header(st) + GROUPS.map((g) => {
+    const items = list.filter((x) => x.s === g.k)
+    const c = st.collapsed.has(g.k)
+    return `<section class="group ${c ? 'collapsed' : ''}">
+      <button class="group-head" data-group="${g.k}"><span class="caret">▾</span><span class="sdot s-${g.k}"></span><span class="name">${g.name}</span><span class="count">${items.length}</span>
+        <span class="peek">${items.map((x) => x.t).join(' · ')}</span></button>
+      <div class="rail">${items.map(card).join('') || '<div class="preview">没有会话</div>'}</div>
+    </section>`
+  }).join('')
+}
+
+function renderC(root, st) {
+  const list = SESSIONS_REAL.filter((x) => st.vendor === 'all' || x.v === st.vendor)
+  const n = (v) => SESSIONS_REAL.filter((x) => v === 'all' || x.v === v).length
+  root.innerHTML = `
+    <div class="bar"><span class="dot"></span><h1>会话</h1><span class="grow"></span><button class="ghost">设置</button><button class="primary">新建</button></div>
+    <div class="chips">${VENDORS.map(([k, l]) => `<button class="chip ${st.vendor === k ? 'on' : ''}" data-vendor="${k}">${l}<span class="n">${n(k)}</span></button>`).join('')}</div>` +
+    GROUPS.map((g) => {
+      const items = list.filter((x) => x.s === g.k)
+      const c = st.collapsed.has(g.k)
+      const all = st.expanded.has(g.k)
+      const shown = all ? items : items.slice(0, PAGE)
+      return `<section class="group ${c ? 'collapsed' : ''}">
+        <button class="group-head" data-group="${g.k}"><span class="caret">▾</span><span class="sdot s-${g.k}"></span><span class="name">${g.name}</span><span class="count">${items.length}</span>
+          <span class="peek">${items.slice(0, 3).map((x) => x.t).join(' · ')}</span></button>
+        <div class="list">${shown.map(card).join('') || '<div class="preview">没有会话</div>'}</div>
+        ${items.length > PAGE ? `<button class="more" data-more="${g.k}">${all ? '收起' : `展开全部 ${items.length} 个`}</button>` : ''}
+      </section>`
+    }).join('')
+}
+
+for (const [id, render] of [['A', renderA], ['B', renderB], ['C', renderC]]) {
+  const root = document.getElementById(id)
+  const st = { ...makeState(), expanded: new Set() }
+  const draw = () => render(root, st)
+  root.addEventListener('click', (e) => {
+    const v = e.target.closest('[data-vendor]')
+    const g = e.target.closest('[data-group]')
+    const m = e.target.closest('[data-more]')
+    if (v) st.vendor = v.dataset.vendor
+    else if (g) st.collapsed.has(g.dataset.group) ? st.collapsed.delete(g.dataset.group) : st.collapsed.add(g.dataset.group)
+    else if (m) st.expanded.has(m.dataset.more) ? st.expanded.delete(m.dataset.more) : st.expanded.add(m.dataset.more)
+    else return
+    draw()
+  })
+  draw()
+}
+</script>
+</body>
+</html>

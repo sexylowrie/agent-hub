@@ -61,3 +61,36 @@ export function summarize(v: unknown, max = 120): string {
   s = s.replace(/\s+/g, ' ').trim()
   return s.length > max ? `${s.slice(0, max)}…` : s
 }
+
+export type GroupKey = 'awaiting' | 'running' | 'idle' | 'error' | 'other'
+
+/** 列表的状态分组，按这个顺序从上到下排 */
+export const GROUPS: { key: GroupKey; label: string }[] = [
+  { key: 'awaiting', label: '待审批' },
+  { key: 'running', label: '运行中' },
+  { key: 'idle', label: '可续聊' },
+  { key: 'error', label: '出错' },
+  { key: 'other', label: '其他' },
+]
+
+/** 会话归到哪一组：进行中的状态优先；可续聊 = 空闲、可续接、未归档；其余（已归档 / 不可续接 / 未知）进「其他」 */
+export function groupOf(s: SessionView): GroupKey {
+  if (s.state === 'awaiting_approval') return 'awaiting'
+  if (s.state === 'running') return 'running'
+  if (s.state === 'error') return 'error'
+  if (s.state === 'idle' && s.resumable && !s.archived) return 'idle'
+  return 'other'
+}
+
+/** 分组并按最近更新倒序 */
+export function groupSessions(list: SessionView[]): Record<GroupKey, SessionView[]> {
+  const out = { awaiting: [], running: [], idle: [], error: [], other: [] } as Record<GroupKey, SessionView[]>
+  for (const s of list) out[groupOf(s)].push(s)
+  for (const k of Object.keys(out) as GroupKey[]) out[k].sort((a, b) => sortKey(b) - sortKey(a))
+  return out
+}
+
+/** 默认只展开一个组：按顺序第一个有会话的组 */
+export function defaultOpenGroup(groups: Record<GroupKey, SessionView[]>): GroupKey | undefined {
+  return GROUPS.find((g) => groups[g.key].length > 0)?.key
+}
