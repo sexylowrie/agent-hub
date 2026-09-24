@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import { connStatus, sessions } from '../ws.ts'
 import { useStore } from '../store.ts'
 import type { SessionView, Vendor } from '../types.ts'
@@ -72,6 +72,18 @@ export function List() {
   const groups = groupSessions(vendor === 'all' ? all : all.filter((s) => s.vendor === vendor))
   const first = defaultOpenGroup(groups)
   const isOpen = (k: GroupKey) => (open ? open.has(k) : k === first)
+
+  // 来了新的审批请求：自动展开「待审批」（审批 5 分钟过期，不能被折叠藏起来）；之后仍可手动折叠
+  const awaitingIds = groups.awaiting.map((s) => s.id)
+  const seenAwaiting = useRef(new Set(awaitingIds))
+  useEffect(() => {
+    const fresh = awaitingIds.some((id) => !seenAwaiting.current.has(id))
+    seenAwaiting.current = new Set(awaitingIds)
+    if (!fresh || !open || open.has('awaiting')) return
+    const next = new Set(open).add('awaiting')
+    setOpen(next)
+    sessionStorage.setItem(OPEN_KEY, JSON.stringify([...next]))
+  }, [awaitingIds.join('|')])
 
   const pickVendor = (v: Vendor | 'all') => {
     setVendor(v)
