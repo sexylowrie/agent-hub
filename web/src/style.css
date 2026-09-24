@@ -133,3 +133,8 @@ h2 { font-size: 14px; margin: 0 0 8px; color: var(--mute); font-weight: 500; }
 .kv { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 4px 0; }
 .kv span:first-child { color: var(--mute); flex: none; }
 .kv span:last-child { text-align: right; word-break: break-all; }
+
+.origin { font-size: 10px; line-height: 16px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--line); color: var(--mute); letter-spacing: .3px; }
+.origin.desktop { color: #c9b8ff; border-color: rgba(201, 184, 255, .4); }
+.origin.cli { color: #9fd7c3; border-color: rgba(159, 215, 195, .4); }
+.origin.hub { color: #8db4ff; border-color: rgba(141, 180, 255, .4); }

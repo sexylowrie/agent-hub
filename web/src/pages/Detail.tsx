@@ -4,7 +4,7 @@ import { hub, sessions } from '../ws.ts'
 import { useStore } from '../store.ts'
 import type { Decision, SessionDetail, StoredEvent } from '../types.ts'
 import { eventBlocks, historyBlocks, hubTurnOpen, splitAt, type Block } from '../timeline.ts'
-import { STATE_REASON, VENDOR_LABEL, badgeOf, navigate, shortCwd, summarize } from '../util.ts'
+import { ORIGIN_TAG, STATE_REASON, VENDOR_LABEL, badgeOf, navigate, shortCwd, summarize } from '../util.ts'
 import { StatusDot } from './List.tsx'
 
 function useNow(active: boolean) {
@@ -247,7 +247,11 @@ export function Detail({ id }: { id: string }) {
         <div class="bar-title">
           <div class="title">{session.title || '（无标题）'}</div>
           <div class="sub">
-            {VENDOR_LABEL[session.vendor]} · {shortCwd(session.cwd)}
+            {VENDOR_LABEL[session.vendor]}{' '}
+            <span class={`origin ${session.origin}`} title={ORIGIN_TAG[session.origin].title}>
+              {ORIGIN_TAG[session.origin].label}
+            </span>{' '}
+            · {shortCwd(session.cwd)}
           </div>
         </div>
         <span class={`badge ${badge.cls}`}>{badge.label}</span>

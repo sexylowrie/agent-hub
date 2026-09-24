@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks'
 import { connStatus, sessions } from '../ws.ts'
 import { useStore } from '../store.ts'
 import type { SessionView, Vendor } from '../types.ts'
-import { VENDOR_LABEL, ago, badgeOf, navigate, shortCwd, sortKey } from '../util.ts'
+import { ORIGIN_TAG, VENDOR_LABEL, ago, badgeOf, navigate, shortCwd, sortKey } from '../util.ts'
 
 type StateFilter = 'all' | 'running' | 'awaiting_approval' | 'idle' | 'archived'
 const STATE_FILTERS: [StateFilter, string][] = [
@@ -95,6 +95,9 @@ export function List() {
               </div>
               <div class="row-meta">
                 <span>{VENDOR_LABEL[s.vendor]}</span>
+                <span class={`origin ${s.origin}`} title={ORIGIN_TAG[s.origin].title}>
+                  {ORIGIN_TAG[s.origin].label}
+                </span>
                 {s.cwd && <span>{shortCwd(s.cwd)}</span>}
                 <span class="grow" />
                 <span>{ago(sortKey(s))}</span>

@@ -1,5 +1,12 @@
 import type { SessionState, SessionView, Vendor } from './types.ts'
 
+/** 会话来源：desktop=桌面 App（GUI），cli=终端命令行，hub=手机上新建（底层也是 CLI） */
+export const ORIGIN_TAG: Record<SessionView['origin'], { label: string; title: string }> = {
+  desktop: { label: 'GUI', title: '桌面 App 里建的会话' },
+  cli: { label: 'CLI', title: '终端命令行里建的会话' },
+  hub: { label: 'Hub', title: '手机上新建的会话（经 CLI 运行）' },
+}
+
 export const VENDOR_LABEL: Record<Vendor, string> = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor' }
 
 export type Badge = { label: string; cls: string }

@@ -5,7 +5,7 @@ Vite + Preact + TypeScript；`web/` 独立 package；构建产物由 Hub 用 hon
 
 ## 页面
 1. **配对页**：PWA 由 Hub 自己托管，host 即 `location.host`（只读显示）；输入 6 位码与设备名 → 存 token 到 localStorage。`npm run hub -- pair` 会打印 `http://<host>/#/pair?code=<code>`，打开即预填。
-2. **会话列表**：按 `vendorUpdatedAt ?? updatedAt` 倒序（`updatedAt` 每次扫描都会变，不适合排序）；行：厂商色条、标题、cwd 末两段、状态徽标（运行中/空闲/待审批/已归档/不可续接）、preview。顶部筛选厂商与状态。运行中的行 preview 实时刷新。
+2. **会话列表**：按 `vendorUpdatedAt ?? updatedAt` 倒序（`updatedAt` 每次扫描都会变，不适合排序）；行：厂商色条、标题、来源标签（`origin`：desktop→GUI、cli→CLI、hub→Hub，详情页标题栏同样显示）、cwd 末两段、状态徽标（运行中/空闲/待审批/已归档/不可续接）、preview。顶部筛选厂商与状态。运行中的行 preview 实时刷新。
 3. **会话详情**：消息流（user/assistant 气泡）、工具调用折叠块（name + input 摘要，展开看 output）、审批卡片（允许/拒绝/本会话允许 + 倒计时）。底部输入框：`running` / `awaiting_approval` / 不可续聊时禁用并显示原因（`error` 不禁用：Hub 轮次失败后会话是 error，send 前 Hub 会实时复核状态，由服务端决定）；Cursor 会话多一个"放行执行(--force)"开关，默认关。Hub 轮次进行中显示"中断"。
 4. **新建**：厂商单选、cwd 下拉（来自 `/api/health` 返回的 allowedCwds）+ 可选子目录、首句；ack 后等 `turn.started` 拿到真实会话 id 再跳详情。
 5. **设置**：Hub 版本与三家二进制状态、推送开关（M3）、退出配对。
