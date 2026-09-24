@@ -5,7 +5,7 @@
 //   - Claude system/init：MCP 服务、skills、插件、agents、斜杠命令、MCP 工具等本机清单清空（解析只用 subtype/session_id/cwd）
 //   - Claude SessionStart hook_response：输出正文清空（可能含记忆库、项目上下文）
 //   - Claude stop_hook_summary：hook 命令行替换为占位
-//   - 家目录用户名替换为 dev；其他私有项目名替换为 demo-app
+//   - 家目录用户名替换为 dev；SANITIZE_WORDS（逗号分隔，如私有项目名）替换为 demo-app
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -14,12 +14,15 @@ const ROOT = join(import.meta.dirname, '..', 'recordings')
 const CHECK = process.argv.includes('--check')
 
 const user = basename(homedir())
+const esc = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/** 不想出现在公开样本里的词（私有项目名等），不写进代码：SANITIZE_WORDS=foo,bar npm run sanitize */
+const WORDS = (process.env.SANITIZE_WORDS ?? '').split(',').map((w) => w.trim()).filter(Boolean)
 const REPLACE: [RegExp, string][] = [
   [new RegExp(`/Users/${user}(?=[/"'\\\\\\s]|$)`, 'g'), '/Users/dev'],
-  [/\bdemo-app\b/gi, 'demo-app'],
+  ...WORDS.map((w): [RegExp, string] => [new RegExp(`\\b${esc(w)}\\b`, 'gi'), 'demo-app']),
 ]
 /** 脱敏后不应再出现的内容 */
-const LEAKS = [new RegExp(`/Users/${user}\\b`), /mcp__(?!ide__)/, /viking:\/\//i, /openviking/i, /\bdemo-app\b/i]
+const LEAKS = [new RegExp(`/Users/${user}\\b`), /mcp__(?!ide__)/, /viking:\/\//i, /openviking/i, ...WORDS.map((w) => new RegExp(`\\b${esc(w)}\\b`, 'i'))]
 
 /** Claude CLI 自带的工具与 agent，保留；其余都是本机装的 */
 const BUILTIN_TOOLS = new Set(['Task', 'Agent', 'Bash', 'Glob', 'Grep', 'Read', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch', 'TodoWrite', 'BashOutput', 'KillShell', 'ExitPlanMode', 'Skill', 'SlashCommand', 'ToolSearch'])
