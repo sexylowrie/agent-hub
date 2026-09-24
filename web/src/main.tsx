@@ -7,6 +7,8 @@ import { List } from './pages/List.tsx'
 import { New } from './pages/New.tsx'
 import { Pair } from './pages/Pair.tsx'
 import { Settings } from './pages/Settings.tsx'
+import { Toasts } from './ui.tsx'
+import './theme.ts'
 import './style.css'
 
 type Route = { name: 'pair'; code?: string } | { name: 'list' } | { name: 'detail'; id: string } | { name: 'new' } | { name: 'settings' }
@@ -31,18 +33,22 @@ function App() {
     window.addEventListener('hashchange', on)
     return () => window.removeEventListener('hashchange', on)
   }, [])
-  switch (route.name) {
-    case 'pair':
-      return <Pair code={route.code} />
-    case 'detail':
-      return <Detail id={route.id} />
-    case 'new':
-      return <New />
-    case 'settings':
-      return <Settings />
-    default:
-      return <List />
-  }
+  return (
+    <>
+      <Toasts />
+      {route.name === 'pair' ? (
+        <Pair code={route.code} />
+      ) : route.name === 'detail' ? (
+        <Detail id={route.id} />
+      ) : route.name === 'new' ? (
+        <New />
+      ) : route.name === 'settings' ? (
+        <Settings />
+      ) : (
+        <List />
+      )}
+    </>
+  )
 }
 
 hub.start()

@@ -3,6 +3,15 @@
 ## 栈
 Vite + Preact + TypeScript；`web/` 独立 package；构建产物由 Hub 用 hono 静态托管在 `/`。类型从 `../src/core/events.ts` 直接 import（tsconfig paths）。
 
+## 视觉与主题（2026-09-24，设计稿 `docs/mockups/ui-refresh.html`）
+- iOS 风格：大标题 + 毛玻璃导航栏（滚动后出分隔线）、inset grouped 圆角卡片、分段控件；厂商用渐变头像块（C / Cx / Cu），右下角小圆点表示运行中（蓝色呼吸）/ 待审批（琥珀）/ 出错。
+- 颜色全部是 CSS 变量，`[data-theme=light|dark]` 两套。主题三档：跟随系统（默认）/ 浅色 / 深色，设置页选，列表导航栏一键切换；存 localStorage `agenthub.theme`。`index.html` 内联脚本在首帧前设好 `data-theme` 与 `theme-color`（不闪），跟随系统时监听 `prefers-color-scheme`。
+- AI 回复走 `web/src/markdown.ts` 轻量渲染（段落、粗体、斜体、行内代码、代码块、列表、标题、引用、分隔线、http(s) 链接），先转义再加标签，不输出原始 HTML；列表预览用 `stripMarkdown` 去标记。
+- 工具块按工具名关键词配图标（终端 / 文件 / 搜索 / 网络），状态：转圈 / 对勾 / 叉。审批卡片：琥珀描边 + 倒计时圆环 + 三个大按钮。
+- 输入栏悬浮圆角，Hub 轮次进行中发送键变红色"停止"（interrupt）；上翻离开底部时有新内容出"↓ 新消息"。
+- 加载用骨架屏；发送 / 审批 / 中断失败用顶部 toast。
+- 构建注意：`vite.config.ts` 写了 `build.cssTarget`，样式里只写标准 `backdrop-filter`，由压缩器补 `-webkit-`（两种都手写时压缩器会只留一个，Chrome 上毛玻璃失效，实测）。
+
 ## 页面
 1. **配对页**：PWA 由 Hub 自己托管，host 即 `location.host`（只读显示）；输入 6 位码与设备名 → 存 token 到 localStorage。`npm run hub -- pair` 会打印 `http://<host>/#/pair?code=<code>`，打开即预填。
 2. **会话列表**（设计稿 `docs/mockups/session-list-grouped.html` 方案 C，2026-09-24 定稿）：

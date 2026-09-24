@@ -11,5 +11,6 @@ export default defineConfig({
       '/ws': { target: HUB.replace(/^http/, 'ws'), ws: true },
     },
   },
-  build: { outDir: 'dist', emptyOutDir: true, target: 'es2022' },
+  // cssTarget 写明浏览器版本：只写 es2022 时压缩器会把 backdrop-filter 与 -webkit- 前缀版当重复声明去掉一个，Chrome 上毛玻璃失效
+  build: { outDir: 'dist', emptyOutDir: true, target: 'es2022', cssTarget: ['chrome111', 'safari16.4', 'firefox128'] },
 })

@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { connStatus, sessions } from '../ws.ts'
+import { sessions } from '../ws.ts'
+import { IconChevron, IconGear, IconMoon, IconPlus, IconSun } from '../icons.tsx'
+import { resolved, themePref, toggleTheme } from '../theme.ts'
+import { Avatar, Navbar, OriginTag, StatusPill } from '../ui.tsx'
+import { stripMarkdown } from '../markdown.ts'
 import { useStore } from '../store.ts'
 import type { SessionView, Vendor } from '../types.ts'
 import {
   GROUPS,
-  ORIGIN_TAG,
   VENDOR_LABEL,
   ago,
   badgeOf,
@@ -33,36 +36,52 @@ function loadOpen(): Set<GroupKey> | undefined {
   }
 }
 
-export function StatusDot() {
-  const st = useStore(connStatus)
-  const label = st === 'open' ? '已连接' : st === 'connecting' ? '连接中' : '已断开'
-  return <span class={`dot ${st}`} title={label} aria-label={label} />
-}
-
 function Row({ s }: { s: SessionView }) {
   const b = badgeOf(s)
   return (
-    <li class={`row ${s.vendor}`} onClick={() => navigate(`#/s/${encodeURIComponent(s.id)}`)}>
-      <div class="row-top">
-        <span class="title">{s.title || '（无标题）'}</span>
-        {(s.archived || !s.resumable) && <span class={`badge ${b.cls}`}>{b.label}</span>}
+    <div class="row" role="link" tabIndex={0} onClick={() => navigate(`#/s/${encodeURIComponent(s.id)}`)}>
+      <Avatar s={s} />
+      <div class="r-main">
+        <div class="r-top">
+          <span class="r-title">{s.title || '（无标题）'}</span>
+          <span class="r-time">{ago(sortKey(s))}</span>
+        </div>
+        <div class="r-meta">
+          <span>{VENDOR_LABEL[s.vendor]}</span>
+          <OriginTag origin={s.origin} />
+          {(s.archived || !s.resumable) && <span class="tag">{b.label}</span>}
+          {s.cwd && <span class="cwd">{shortCwd(s.cwd)}</span>}
+        </div>
+        {s.lastMessagePreview && <div class="r-prev">{stripMarkdown(s.lastMessagePreview)}</div>}
       </div>
-      <div class="row-meta">
-        <span>{VENDOR_LABEL[s.vendor]}</span>
-        <span class={`origin ${s.origin}`} title={ORIGIN_TAG[s.origin].title}>
-          {ORIGIN_TAG[s.origin].label}
-        </span>
-        {s.cwd && <span class="cwd">{shortCwd(s.cwd)}</span>}
-        <span class="grow" />
-        <span>{ago(sortKey(s))}</span>
+    </div>
+  )
+}
+
+function Skeleton() {
+  return (
+    <div class="groups">
+      <div class="g-head">
+        <span class="sk" style={{ width: '90px', height: '16px' }} />
       </div>
-      {s.lastMessagePreview && <div class="preview">{s.lastMessagePreview}</div>}
-    </li>
+      <div class="g-body">
+        {[0, 1, 2, 3].map((i) => (
+          <div class="sk-row" key={i}>
+            <span class="sk" style={{ width: '36px', height: '36px', borderRadius: '11px' }} />
+            <div class="grow">
+              <span class="sk" style={{ display: 'block', width: '60%', height: '14px', marginBottom: '8px' }} />
+              <span class="sk" style={{ display: 'block', width: '90%', height: '12px' }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
 export function List() {
   const map = useStore(sessions)
+  const theme = useStore(themePref)
   const [vendor, setVendor] = useState<Vendor | 'all'>(() => (localStorage.getItem(VENDOR_KEY) as Vendor | 'all' | null) ?? 'all')
   const [open, setOpen] = useState<Set<GroupKey> | undefined>(loadOpen)
   const [showAll, setShowAll] = useState<Set<GroupKey>>(new Set())
@@ -105,62 +124,70 @@ export function List() {
 
   return (
     <div class="page">
-      <header class="bar">
-        <StatusDot />
-        <h1>会话</h1>
-        <span class="grow" />
-        <button class="ghost" onClick={() => navigate('#/settings')} aria-label="设置">
-          设置
-        </button>
-        <button class="primary small" onClick={() => navigate('#/new')}>
-          新建
-        </button>
-      </header>
-      <div class="chips">
-        {VENDORS.map((v) => (
-          <button class={`chip ${vendor === v ? 'on' : ''} ${v}`} onClick={() => pickVendor(v)}>
-            {v === 'all' ? '全部' : VENDOR_LABEL[v]}
-            <span class="n">{count(v)}</span>
+      <Navbar>
+        <div class="nav-row">
+          <StatusPill />
+          <span class="grow" />
+          <button class="icon-btn" onClick={toggleTheme} aria-label="切换浅色 / 深色">
+            {resolved(theme) === 'dark' ? <IconSun /> : <IconMoon />}
           </button>
-        ))}
-      </div>
-      {map.size === 0 && <p class="empty">加载中…</p>}
-      {map.size > 0 &&
-        GROUPS.map(({ key, label }) => {
-          const items = groups[key]
-          const opened = isOpen(key)
-          const expanded = showAll.has(key)
-          const shown = expanded ? items : items.slice(0, PAGE)
-          return (
-            <section class={`group ${opened ? '' : 'collapsed'}`} key={key}>
-              <button class="group-head" onClick={() => toggle(key)} aria-expanded={opened}>
-                <span class="caret">▾</span>
-                <span class={`sdot ${key}`} />
-                <span class="group-name">{label}</span>
-                <span class="count">{items.length}</span>
-                {!opened && <span class="peek">{items.slice(0, 3).map((s) => s.title || '（无标题）').join(' · ')}</span>}
-              </button>
-              {opened && (
-                <>
-                  {items.length === 0 ? (
-                    <p class="group-empty">没有会话</p>
-                  ) : (
-                    <ul class="sessions">
-                      {shown.map((s) => (
-                        <Row key={s.id} s={s} />
-                      ))}
-                    </ul>
-                  )}
-                  {items.length > PAGE && (
-                    <button class="more" onClick={() => toggleAll(key)}>
-                      {expanded ? '收起' : `展开全部 ${items.length} 个`}
-                    </button>
-                  )}
-                </>
-              )}
-            </section>
-          )
-        })}
+          <button class="icon-btn" onClick={() => navigate('#/settings')} aria-label="设置">
+            <IconGear />
+          </button>
+          <button class="icon-btn primary" onClick={() => navigate('#/new')} aria-label="新建会话">
+            <IconPlus />
+          </button>
+        </div>
+        <h1 class="large-title">会话</h1>
+        <div class="seg" role="tablist">
+          {VENDORS.map((v) => (
+            <button class={vendor === v ? 'on' : ''} role="tab" aria-selected={vendor === v} onClick={() => pickVendor(v)}>
+              {v !== 'all' && <span class={`vdot ${v}`} />}
+              {v === 'all' ? '全部' : VENDOR_LABEL[v]}
+              <span class="n">{count(v)}</span>
+            </button>
+          ))}
+        </div>
+      </Navbar>
+      {map.size === 0 ? (
+        <Skeleton />
+      ) : (
+        <div class="groups">
+          {GROUPS.map(({ key, label }) => {
+            const items = groups[key]
+            const opened = isOpen(key)
+            const expanded = showAll.has(key)
+            const shown = expanded ? items : items.slice(0, PAGE)
+            return (
+              <section class={`group ${opened ? '' : 'collapsed'}`} key={key}>
+                <button class="g-head" onClick={() => toggle(key)} aria-expanded={opened}>
+                  <span class="chev">
+                    <IconChevron size={14} />
+                  </span>
+                  <span class={`sdot ${key}`} />
+                  <span class="g-name">{label}</span>
+                  <span class="g-count">{items.length}</span>
+                  {!opened && <span class="g-peek">{items.slice(0, 3).map((s) => s.title || '（无标题）').join(' · ')}</span>}
+                </button>
+                {opened && (
+                  <div class="g-body">
+                    {items.length === 0 ? (
+                      <div class="g-empty">没有会话</div>
+                    ) : (
+                      shown.map((s) => <Row key={s.id} s={s} />)
+                    )}
+                    {items.length > PAGE && (
+                      <button class="more" onClick={() => toggleAll(key)}>
+                        {expanded ? '收起' : `展开全部 ${items.length} 个`}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </section>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

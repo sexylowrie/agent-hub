@@ -4,8 +4,11 @@ import { hub, sessions } from '../ws.ts'
 import { useStore } from '../store.ts'
 import type { Decision, SessionDetail, StoredEvent } from '../types.ts'
 import { eventBlocks, historyBlocks, hubTurnOpen, splitAt, type Block } from '../timeline.ts'
-import { ORIGIN_TAG, STATE_REASON, VENDOR_LABEL, badgeOf, navigate, shortCwd, summarize } from '../util.ts'
-import { StatusDot } from './List.tsx'
+import { STATE_REASON, VENDOR_LABEL, navigate, shortCwd, summarize } from '../util.ts'
+import { renderMarkdown } from '../markdown.ts'
+import { toast } from '../toast.ts'
+import { Navbar, OriginTag, Switch } from '../ui.tsx'
+import { IconBack, IconCheck, IconDown, IconFile, IconGlobe, IconSearch, IconSend, IconShield, IconStop, IconTerminal, IconTool, IconX } from '../icons.tsx'
 
 function useNow(active: boolean) {
   const [now, setNow] = useState(Date.now())
@@ -17,94 +20,145 @@ function useNow(active: boolean) {
   return now
 }
 
+/** 工具名 → 图标（三家工具名各不相同，按关键词归类） */
+function ToolIcon({ name }: { name: string }) {
+  const n = name.toLowerCase()
+  if (/bash|shell|command|exec|terminal|run/.test(n)) return <IconTerminal size={14} />
+  if (/web|fetch|url|browser/.test(n)) return <IconGlobe size={14} />
+  if (/grep|glob|search|find|list|ls/.test(n)) return <IconSearch size={14} />
+  if (/edit|write|read|file|patch|notebook|change/.test(n)) return <IconFile size={14} />
+  return <IconTool size={14} />
+}
+
 function ToolBlock({ b }: { b: Extract<Block, { kind: 'tool' }> }) {
   const [open, setOpen] = useState(false)
   const input = typeof b.input === 'string' ? b.input : JSON.stringify(b.input, null, 2)
   return (
     <div class={`tool ${b.isError ? 'bad' : ''}`}>
-      <button class="tool-head" onClick={() => setOpen(!open)}>
-        <span class="caret">{open ? '▾' : '▸'}</span>
-        <span class="tool-name">{b.name}</span>
-        <span class="tool-sum">{summarize(b.input, 80)}</span>
-        {!b.done && <span class="spinner" />}
+      <button class="tool-h" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span class="tool-ic">
+          <ToolIcon name={b.name} />
+        </span>
+        <span class="tool-n">{b.name}</span>
+        <span class="tool-s">{summarize(b.input, 80)}</span>
+        {!b.done ? (
+          <span class="spin" aria-label="进行中" />
+        ) : b.isError ? (
+          <span class="st-err">
+            <IconX size={16} />
+          </span>
+        ) : b.output !== undefined ? (
+          <span class="st-ok">
+            <IconCheck size={16} />
+          </span>
+        ) : null}
       </button>
       {open && (
-        <div class="tool-body">
-          {input && <pre>{input}</pre>}
-          {b.output && <pre class="out">{b.output}</pre>}
+        <div class="tool-b">
+          {input && input !== '{}' && (
+            <>
+              <div class="lbl">输入</div>
+              <pre>{input}</pre>
+            </>
+          )}
+          {b.output && (
+            <>
+              <div class="lbl">输出</div>
+              <pre>{b.output}</pre>
+            </>
+          )}
         </div>
       )}
     </div>
   )
 }
 
-const DECISION_LABEL: Record<Decision, string> = { allow: '已允许', deny: '已拒绝', allow_session: '本会话允许' }
+const DECISION_LABEL: Record<Decision, string> = { allow: '已允许', deny: '已拒绝', allow_session: '本会话已允许' }
+const KIND_LABEL: Record<string, string> = { command: '运行命令', file_write: '修改文件', tool: '使用工具', other: '操作' }
+const RING_C = 2 * Math.PI * 16
 
-function ApprovalCard({ b, actionable }: { b: Extract<Block, { kind: 'approval' }>; actionable: boolean }) {
+function ApprovalCard({ b, actionable, vendor }: { b: Extract<Block, { kind: 'approval' }>; actionable: boolean; vendor: string }) {
   const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
+  const [open, setOpen] = useState(false)
   const live = actionable && !b.decision
   const now = useNow(live)
   const left = Math.max(0, Math.round((b.expiresAt - now) / 1000))
+  const total = useRef(Math.max(300, left))
   const expired = !b.decision && (left === 0 || !actionable)
+  const active = live && !expired
   const decide = async (decision: Decision) => {
     setBusy(true)
-    setErr('')
     const r = await hub.request({ t: 'approve', approvalId: b.approvalId, decision })
     setBusy(false)
-    if (!r.ok) setErr(r.message)
+    if (!r.ok) toast(`审批失败：${r.message}`)
   }
-  const [open, setOpen] = useState(false)
+  const status = b.decision ? (b.by === 'expired' ? '已过期（按拒绝处理）' : DECISION_LABEL[b.decision]) : expired ? '已失效' : ''
   return (
-    <div class={`approval ${live && !expired ? 'live' : ''}`}>
-      <div class="approval-head">
-        <strong>需要审批</strong>
-        <span class="grow" />
-        {b.decision ? (
-          <span class="badge mute">{b.by === 'expired' ? '已过期（拒绝）' : DECISION_LABEL[b.decision]}</span>
-        ) : expired ? (
-          <span class="badge mute">已失效</span>
-        ) : (
-          <span class="badge warn">
-            {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}
-          </span>
+    <div class={`approval ${active ? 'live' : ''}`}>
+      <div class="ap-h">
+        <span class="ap-ic">
+          <IconShield size={18} />
+        </span>
+        <div class="grow">
+          <div class="ap-t">
+            {active ? '需要审批' : '审批'} · {KIND_LABEL[b.approvalKind] ?? '操作'}
+          </div>
+          <div class="ap-k">{status || `${vendor} 请求你的许可`}</div>
+        </div>
+        {active && (
+          <div class="ring" aria-label={`剩余 ${left} 秒`}>
+            <svg width="38" height="38">
+              <circle cx="19" cy="19" r="16" stroke="var(--warn-soft)" stroke-width="3" fill="none" />
+              <circle
+                cx="19" cy="19" r="16" stroke="var(--warn)" stroke-width="3" fill="none" stroke-linecap="round"
+                stroke-dasharray={RING_C} stroke-dashoffset={RING_C * (1 - left / total.current)}
+              />
+            </svg>
+            <span>
+              {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}
+            </span>
+          </div>
         )}
       </div>
-      <div class="approval-sum">{b.summary}</div>
+      <div class="ap-cmd">{b.summary}</div>
       {b.detail !== undefined && b.detail !== null && (
         <button class="link" onClick={() => setOpen(!open)}>
           {open ? '收起详情' : '查看详情'}
         </button>
       )}
-      {open && <pre>{JSON.stringify(b.detail, null, 2)}</pre>}
-      {live && !expired && (
-        <div class="approval-actions">
-          <button class="danger" disabled={busy} onClick={() => decide('deny')}>
+      {open && <pre class="ap-detail">{JSON.stringify(b.detail, null, 2)}</pre>}
+      {active && (
+        <div class="ap-actions">
+          <button class="btn deny" disabled={busy} onClick={() => decide('deny')}>
             拒绝
           </button>
-          <button disabled={busy} onClick={() => decide('allow_session')}>
+          <button class="btn soft" disabled={busy} onClick={() => decide('allow_session')}>
             本会话允许
           </button>
-          <button class="primary" disabled={busy} onClick={() => decide('allow')}>
+          <button class="btn go" disabled={busy} onClick={() => decide('allow')}>
             允许
           </button>
         </div>
       )}
-      {err && <div class="error">{err}</div>}
     </div>
   )
 }
 
-function BlockView({ b, pending }: { b: Block; pending: Set<string> }) {
+function Assistant({ text }: { text: string }) {
+  const html = useMemo(() => renderMarkdown(text), [text])
+  return <div class="assistant" dangerouslySetInnerHTML={{ __html: html }} />
+}
+
+function BlockView({ b, pending, vendor }: { b: Block; pending: Set<string>; vendor: string }) {
   switch (b.kind) {
     case 'user':
-      return <div class="msg user">{b.text}</div>
+      return <div class="bubble user">{b.text}</div>
     case 'assistant':
-      return <div class="msg assistant">{b.text}</div>
+      return <Assistant text={b.text} />
     case 'tool':
       return <ToolBlock b={b} />
     case 'approval':
-      return <ApprovalCard b={b} actionable={pending.has(b.approvalId)} />
+      return <ApprovalCard b={b} actionable={pending.has(b.approvalId)} vendor={vendor} />
     case 'done':
       return (
         <div class={`turn-end ${b.status}`}>
@@ -118,6 +172,17 @@ function BlockView({ b, pending }: { b: Block; pending: Set<string> }) {
   }
 }
 
+function DetailSkeleton() {
+  return (
+    <div class="timeline">
+      <span class="sk" style={{ alignSelf: 'flex-end', width: '62%', height: '40px', borderRadius: '18px' }} />
+      <span class="sk" style={{ width: '90%', height: '14px' }} />
+      <span class="sk" style={{ width: '75%', height: '14px' }} />
+      <span class="sk" style={{ width: '100%', height: '40px', borderRadius: '12px' }} />
+    </div>
+  )
+}
+
 export function Detail({ id }: { id: string }) {
   const map = useStore(sessions)
   const [detail, setDetail] = useState<SessionDetail>()
@@ -128,9 +193,11 @@ export function Detail({ id }: { id: string }) {
   const [pending, setPending] = useState<Set<string>>(new Set())
   const [text, setText] = useState('')
   const [force, setForce] = useState(false)
-  const [sendErr, setSendErr] = useState('')
+  const ta = useRef<HTMLTextAreaElement>(null)
   const [sending, setSending] = useState(false)
   const stick = useRef(true)
+  const [atBottom, setAtBottom] = useState(true)
+  const [unseen, setUnseen] = useState(false)
   const refetchTimer = useRef<number>()
 
   const load = async () => {
@@ -190,14 +257,19 @@ export function Detail({ id }: { id: string }) {
     return eventBlocks(events)
   }, [detail, events, baseSeq, pending])
 
+  const toBottom = (smooth = false) => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+
   useEffect(() => {
-    // 滚到页面最底（输入栏是 sticky 的，scrollIntoView 会让最后一条被它盖住）
-    if (stick.current) window.scrollTo(0, document.documentElement.scrollHeight)
+    // 贴底时跟着新内容滚；用户上翻着就只提示「新消息」
+    if (stick.current) toBottom()
+    else if (blocks.length) setUnseen(true)
   }, [blocks.length, blocks[blocks.length - 1]])
 
   useEffect(() => {
     const onScroll = () => {
       stick.current = window.innerHeight + window.scrollY >= document.body.scrollHeight - 80
+      setAtBottom(stick.current)
+      if (stick.current) setUnseen(false)
     }
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
@@ -206,17 +278,19 @@ export function Detail({ id }: { id: string }) {
   if (!session) {
     return (
       <div class="page">
-        <header class="bar">
-          <button class="ghost" onClick={() => navigate('#/')}>
-            ‹ 返回
-          </button>
-        </header>
-        <p class="empty">{loadErr || '加载中…'}</p>
+        <Navbar compact>
+          <div class="nav-row">
+            <button class="back" onClick={() => navigate('#/')}>
+              <IconBack size={22} />
+              会话
+            </button>
+          </div>
+        </Navbar>
+        {loadErr ? <p class="empty">{loadErr}</p> : <DetailSkeleton />}
       </div>
     )
   }
 
-  const badge = badgeOf(session)
   const blockedReason = !session.resumable ? (session.unresumableReason ?? '该会话不可续聊') : STATE_REASON[session.state]
   const canInterrupt = (session.state === 'running' || session.state === 'awaiting_approval') && hubTurnOpen(events)
 
@@ -225,57 +299,79 @@ export function Detail({ id }: { id: string }) {
     const t = text.trim()
     if (!t || blockedReason) return
     setSending(true)
-    setSendErr('')
     stick.current = true
     const r = await hub.request({ t: 'send', sessionId: id, text: t, ...(session.vendor === 'cursor' && force ? { force: true } : {}) })
     setSending(false)
-    if (r.ok) setText('')
-    else setSendErr(`${r.message}${r.code === 'OFFLINE' || r.code === 'TIMEOUT' ? '' : `（${r.code}）`}`)
+    if (r.ok) {
+      setText('')
+      if (ta.current) ta.current.style.height = ''
+    } else toast(`发送失败：${r.message}`)
   }
 
   const interrupt = async () => {
     const r = await hub.request({ t: 'interrupt', sessionId: id })
-    if (!r.ok) setSendErr(r.message)
+    if (!r.ok) toast(`中断失败：${r.message}`)
   }
+
+  const vendorLabel = VENDOR_LABEL[session.vendor]
+  const hint = blockedReason ?? (session.state === 'running' ? '运行中…' : '')
 
   return (
     <div class="page detail">
-      <header class="bar sticky">
-        <button class="ghost" onClick={() => navigate('#/')}>
-          ‹
-        </button>
-        <div class="bar-title">
-          <div class="title">{session.title || '（无标题）'}</div>
-          <div class="sub">
-            {VENDOR_LABEL[session.vendor]}{' '}
-            <span class={`origin ${session.origin}`} title={ORIGIN_TAG[session.origin].title}>
-              {ORIGIN_TAG[session.origin].label}
-            </span>{' '}
-            · {shortCwd(session.cwd)}
+      <Navbar compact>
+        <div class="nav-row">
+          <div class="nav-side" style={{ justifyContent: 'flex-start' }}>
+            <button class="back" onClick={() => navigate('#/')} aria-label="返回会话列表">
+              <IconBack size={22} />
+            </button>
+          </div>
+          <div class="d-title">
+            <div class="t">{session.title || '（无标题）'}</div>
+            <div class="s">
+              <span class={`vdot ${session.vendor}`} />
+              {vendorLabel}
+              <OriginTag origin={session.origin} />
+              {session.cwd && <span class="cwd">{shortCwd(session.cwd)}</span>}
+            </div>
+          </div>
+          <div class="nav-side">
+            <span class={`tag ${STATE_TAG[session.state]?.cls ?? ''}`}>{STATE_TAG[session.state]?.label ?? '未知'}</span>
           </div>
         </div>
-        <span class={`badge ${badge.cls}`}>{badge.label}</span>
-        <StatusDot />
-      </header>
-      <div class="timeline">
-        {loadErr && <div class="error">{loadErr}</div>}
-        {detail && blocks.length === 0 && <p class="empty">暂无消息</p>}
-        {blocks.map((b) => (
-          <BlockView key={b.key} b={b} pending={pending} />
-        ))}
-        {session.state === 'running' && !canInterrupt && <div class="turn-end">运行中…</div>}
-      </div>
+      </Navbar>
+      {!detail && !loadErr ? (
+        <DetailSkeleton />
+      ) : (
+        <div class="timeline">
+          {loadErr && <div class="error">{loadErr}</div>}
+          {detail && blocks.length === 0 && <p class="empty">暂无消息</p>}
+          {blocks.map((b) => (
+            <BlockView key={b.key} b={b} pending={pending} vendor={vendorLabel} />
+          ))}
+        </div>
+      )}
+      {!atBottom && unseen && (
+        <button class="jump" onClick={() => toBottom(true)}>
+          <IconDown size={14} />
+          新消息
+        </button>
+      )}
       <form class="composer" onSubmit={send}>
-        {blockedReason && <div class="hint">{blockedReason}</div>}
-        {sendErr && <div class="error">{sendErr}</div>}
-        {session.vendor === 'cursor' && (
-          <label class="toggle">
-            <input type="checkbox" checked={force} onChange={(e) => setForce((e.target as HTMLInputElement).checked)} />
-            放行执行（--force）：Cursor 没有中途审批，默认在沙箱里跑；勾选后不受沙箱限制
-          </label>
+        {hint && (
+          <div class="c-hint">
+            <span class={`sdot ${session.state === 'awaiting_approval' ? 'awaiting' : session.state === 'running' ? 'running' : ''}`} />
+            {hint}
+          </div>
         )}
-        <div class="composer-row">
+        {session.vendor === 'cursor' && !blockedReason && (
+          <div class="force">
+            <Switch small tone="warn" checked={force} onChange={setForce} />
+            <span>放行执行（--force）：Cursor 没有中途审批，默认在沙箱里跑；打开后不受沙箱限制</span>
+          </div>
+        )}
+        <div class="c-box">
           <textarea
+            ref={ta}
             rows={1}
             value={text}
             disabled={!!blockedReason}
@@ -288,18 +384,26 @@ export function Detail({ id }: { id: string }) {
             }}
           />
           {canInterrupt ? (
-            <button type="button" class="danger" onClick={interrupt}>
-              中断
+            <button type="button" class="send stop" onClick={interrupt} aria-label="中断">
+              <IconStop size={14} />
             </button>
           ) : (
-            <button class="primary" disabled={!!blockedReason || sending || !text.trim()}>
-              发送
+            <button class="send" disabled={!!blockedReason || sending || !text.trim()} aria-label="发送">
+              <IconSend size={18} />
             </button>
           )}
         </div>
       </form>
     </div>
   )
+}
+
+const STATE_TAG: Record<string, { label: string; cls: string }> = {
+  idle: { label: '空闲', cls: 'ok' },
+  running: { label: '运行中', cls: 'run' },
+  awaiting_approval: { label: '待审批', cls: 'warn' },
+  error: { label: '出错', cls: 'err' },
+  unknown: { label: '未知', cls: '' },
 }
 
 function mergeEvents(a: StoredEvent[], b: StoredEvent[]): StoredEvent[] {

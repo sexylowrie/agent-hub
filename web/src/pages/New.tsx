@@ -3,6 +3,9 @@ import { api } from '../api.ts'
 import { hub } from '../ws.ts'
 import type { Health, Vendor } from '../types.ts'
 import { VENDOR_LABEL, navigate } from '../util.ts'
+import { toast } from '../toast.ts'
+import { IconBack } from '../icons.tsx'
+import { Navbar, Switch } from '../ui.tsx'
 
 const VENDORS: Vendor[] = ['claude', 'codex', 'cursor']
 const START_TIMEOUT_MS = 60_000
@@ -15,7 +18,6 @@ export function New() {
   const [text, setText] = useState('')
   const [force, setForce] = useState(false)
   const [status, setStatus] = useState('')
-  const [err, setErr] = useState('')
 
   useEffect(() => {
     api<Health>('/api/health')
@@ -23,19 +25,18 @@ export function New() {
         setHealth(h)
         setRoot(h.allowedCwds?.[0] ?? '')
       })
-      .catch((e) => setErr((e as Error).message))
+      .catch((e) => toast((e as Error).message))
   }, [])
 
   const cwd = sub.trim() ? `${root.replace(/\/$/, '')}/${sub.trim().replace(/^\/+/, '')}` : root
 
   const submit = async (e: Event) => {
     e.preventDefault()
-    setErr('')
     setStatus('发起中…')
     const r = await hub.request({ t: 'start', vendor, cwd, text: text.trim(), ...(vendor === 'cursor' && force ? { force: true } : {}) })
     if (!r.ok) {
       setStatus('')
-      return setErr(`${r.message}（${r.code}）`)
+      return toast(`${r.message}（${r.code}）`)
     }
     const turnId = (r.data as { turnId: string }).turnId
     setStatus('已发起，等待会话创建…')
@@ -49,62 +50,78 @@ export function New() {
         off()
         clearTimeout(timer)
         setStatus('')
-        setErr(ev.type === 'error' ? ev.message : `启动失败：${ev.resultText ?? ev.status}`)
+        toast(ev.type === 'error' ? ev.message : `启动失败：${ev.resultText ?? ev.status}`)
       }
     })
     const timer = window.setTimeout(() => {
       off()
       setStatus('')
-      setErr('等待超时：会话可能仍在创建，稍后回列表查看')
+      toast('等待超时：会话可能仍在创建，稍后回列表查看', 'info')
     }, START_TIMEOUT_MS)
   }
 
   const vendorOk = (v: Vendor) => health?.vendors[v]?.ok !== false
 
   return (
-    <div class="page narrow">
-      <header class="bar">
-        <button class="ghost" onClick={() => navigate('#/')}>
-          ‹ 返回
-        </button>
-        <h1>新建会话</h1>
-      </header>
-      <form class="form" onSubmit={submit}>
+    <div class="page">
+      <Navbar>
+        <div class="nav-row">
+          <button class="back" onClick={() => navigate('#/')}>
+            <IconBack size={22} />
+            会话
+          </button>
+        </div>
+        <h1 class="large-title">新建会话</h1>
+      </Navbar>
+      <form onSubmit={submit}>
         <div class="seg">
           {VENDORS.map((v) => (
-            <button type="button" class={`${vendor === v ? 'on' : ''} ${v}`} disabled={!vendorOk(v)} onClick={() => setVendor(v)}>
+            <button type="button" class={vendor === v ? 'on' : ''} disabled={!vendorOk(v)} onClick={() => setVendor(v)}>
+              <span class={`vdot ${v}`} />
               {VENDOR_LABEL[v]}
             </button>
           ))}
         </div>
-        <label>
-          目录
-          <select value={root} onChange={(e) => setRoot((e.target as HTMLSelectElement).value)}>
-            {(health?.allowedCwds ?? []).map((c) => (
-              <option value={c}>{c}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          子目录（可选）
-          <input value={sub} placeholder="如 agent-hub" onInput={(e) => setSub((e.target as HTMLInputElement).value)} />
-        </label>
-        <div class="hint">工作目录：{cwd || '—'}</div>
-        <label>
-          首句
-          <textarea rows={4} value={text} onInput={(e) => setText((e.target as HTMLTextAreaElement).value)} />
-        </label>
-        {vendor === 'cursor' && (
-          <label class="toggle">
-            <input type="checkbox" checked={force} onChange={(e) => setForce((e.target as HTMLInputElement).checked)} />
-            放行执行（--force）
+        <div class="sec-h">工作目录</div>
+        <div class="card">
+          <label class="cell">
+            <span class="k">根目录</span>
+            <select value={root} onChange={(e) => setRoot((e.target as HTMLSelectElement).value)}>
+              {(health?.allowedCwds ?? []).map((c) => (
+                <option value={c}>{c.replace(/^\/Users\/[^/]+/, '~')}</option>
+              ))}
+            </select>
           </label>
+          <label class="cell">
+            <span class="k">子目录</span>
+            <input value={sub} placeholder="可选，如 agent-hub" onInput={(e) => setSub((e.target as HTMLInputElement).value)} />
+          </label>
+        </div>
+        <p class="sec-f">{cwd || '—'}</p>
+        <div class="sec-h">首句</div>
+        <div class="card">
+          <div class="cell stack">
+            <textarea value={text} placeholder="想让它做什么？" onInput={(e) => setText((e.target as HTMLTextAreaElement).value)} />
+          </div>
+        </div>
+        {vendor === 'cursor' && (
+          <>
+            <div class="sec-h" />
+            <div class="card">
+              <div class="cell">
+                <span>放行执行（--force）</span>
+                <span class="grow" />
+                <Switch tone="warn" checked={force} onChange={setForce} />
+              </div>
+            </div>
+            <p class="sec-f">Cursor 没有中途审批，默认在沙箱里跑；打开后不受沙箱限制。</p>
+          </>
         )}
-        {err && <div class="error">{err}</div>}
-        {status && <div class="hint">{status}</div>}
-        <button class="primary" disabled={!!status || !cwd || !text.trim()}>
-          开始
-        </button>
+        <div class="form-foot">
+          <button class="btn go block" disabled={!!status || !cwd || !text.trim()}>
+            {status || '开始'}
+          </button>
+        </div>
       </form>
     </div>
   )

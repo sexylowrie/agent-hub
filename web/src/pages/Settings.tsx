@@ -1,17 +1,28 @@
 import { useEffect, useState } from 'preact/hooks'
 import { api, auth } from '../api.ts'
 import { hub } from '../ws.ts'
+import { useStore } from '../store.ts'
 import type { Health } from '../types.ts'
 import { VENDOR_LABEL, navigate } from '../util.ts'
-import { PushToggle } from '../push.tsx'
+import { setTheme, themePref, type ThemePref } from '../theme.ts'
+import { toast } from '../toast.ts'
+import { IconBack } from '../icons.tsx'
+import { Navbar } from '../ui.tsx'
+import { PushSection } from '../push.tsx'
+
+const THEMES: { key: ThemePref; label: string; pv: string }[] = [
+  { key: 'system', label: '跟随系统', pv: 'a' },
+  { key: 'light', label: '浅色', pv: 'l' },
+  { key: 'dark', label: '深色', pv: 'd' },
+]
 
 export function Settings() {
   const [health, setHealth] = useState<Health>()
-  const [err, setErr] = useState('')
+  const theme = useStore(themePref)
   useEffect(() => {
     api<Health>('/api/health')
       .then(setHealth)
-      .catch((e) => setErr((e as Error).message))
+      .catch((e) => toast((e as Error).message))
   }, [])
 
   const unpair = () => {
@@ -22,43 +33,68 @@ export function Settings() {
   }
 
   return (
-    <div class="page narrow">
-      <header class="bar">
-        <button class="ghost" onClick={() => navigate('#/')}>
-          ‹ 返回
-        </button>
-        <h1>设置</h1>
-      </header>
-      {err && <div class="error">{err}</div>}
-      <section class="card">
-        <h2>Hub</h2>
-        <div class="kv">
-          <span>地址</span>
-          <span>{location.host}</span>
+    <div class="page">
+      <Navbar>
+        <div class="nav-row">
+          <button class="back" onClick={() => navigate('#/')}>
+            <IconBack size={22} />
+            会话
+          </button>
         </div>
-        <div class="kv">
-          <span>版本</span>
-          <span>{health?.version ?? '—'}</span>
+        <h1 class="large-title">设置</h1>
+      </Navbar>
+
+      <div class="sec-h">外观</div>
+      <div class="card">
+        <div class="theme-pick" role="radiogroup" aria-label="主题">
+          {THEMES.map((t) => (
+            <button class={`tp ${theme === t.key ? 'on' : ''}`} role="radio" aria-checked={theme === t.key} onClick={() => setTheme(t.key)}>
+              <div class={`pv ${t.pv}`}>
+                <i />
+                <i />
+                <i />
+              </div>
+              {t.label}
+            </button>
+          ))}
         </div>
-        <div class="kv">
-          <span>本设备</span>
-          <span>{auth.device() || '—'}</span>
+      </div>
+
+      <div class="sec-h">通知</div>
+      <PushSection health={health} />
+
+      <div class="sec-h">Hub</div>
+      <div class="card">
+        <div class="cell">
+          地址<span class="grow" />
+          <span class="v">{location.host}</span>
+        </div>
+        <div class="cell">
+          本设备<span class="grow" />
+          <span class="v">{auth.device() || '—'}</span>
+        </div>
+        <div class="cell">
+          版本<span class="grow" />
+          <span class="v">{health?.version ?? '—'}</span>
         </div>
         {health &&
           Object.entries(health.vendors).map(([v, s]) => (
-            <div class="kv">
-              <span>{VENDOR_LABEL[v as keyof typeof VENDOR_LABEL]}</span>
-              <span class={s.ok ? '' : 'bad'}>{s.ok ? s.version : `不可用：${s.error ?? ''}`}</span>
+            <div class="cell">
+              <span class={`vdot ${v}`} />
+              {VENDOR_LABEL[v as keyof typeof VENDOR_LABEL]}
+              <span class="grow" />
+              <span class={`v ${s.ok ? '' : 'bad'}`}>{s.ok ? s.version?.replace(/\s*\(.*\)$/, '').replace(/^codex-cli\s*/, '') : '不可用'}</span>
             </div>
           ))}
-      </section>
-      <section class="card">
-        <h2>通知</h2>
-        <PushToggle health={health} />
-      </section>
-      <button class="danger" onClick={unpair}>
-        退出配对
-      </button>
+      </div>
+
+      <div class="sec-h" />
+      <div class="card">
+        <button class="cell danger" onClick={unpair}>
+          退出配对
+        </button>
+      </div>
+      <div style={{ height: 'calc(40px + env(safe-area-inset-bottom))' }} />
     </div>
   )
 }

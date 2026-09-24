@@ -4,7 +4,7 @@ export type Block =
   | { kind: 'user'; key: string; text: string }
   | { kind: 'assistant'; key: string; text: string; turnId?: string }
   | { kind: 'tool'; key: string; name: string; input: unknown; output?: string; isError?: boolean; done: boolean }
-  | { kind: 'approval'; key: string; approvalId: string; summary: string; detail: unknown; expiresAt: number; decision?: Decision; by?: string }
+  | { kind: 'approval'; key: string; approvalId: string; approvalKind: string; summary: string; detail: unknown; expiresAt: number; decision?: Decision; by?: string }
   | { kind: 'done'; key: string; status: 'success' | 'error' | 'interrupted'; resultText?: string; durationMs?: number }
   | { kind: 'error'; key: string; message: string }
 
@@ -80,6 +80,7 @@ export function eventBlocks(events: { seq: number; event: HubEvent }[]): Block[]
           kind: 'approval',
           key,
           approvalId: e.approvalId,
+          approvalKind: e.kind,
           summary: e.summary,
           detail: e.detail,
           expiresAt: e.expiresAt,
