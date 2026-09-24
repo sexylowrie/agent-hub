@@ -16,6 +16,7 @@
   <img alt="Runtime deps" src="https://img.shields.io/badge/runtime%20deps-3-brightgreen" />
   <img alt="Tests" src="https://img.shields.io/badge/tests-87%20passing-brightgreen" />
   <img alt="macOS" src="https://img.shields.io/badge/platform-macOS-000000?logo=apple&logoColor=white" />
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue" />
 </p>
 
 <img src="docs/assets/desktop-dark.png" alt="Agent Hub 电脑端：左侧三家会话按状态分组，右侧会话详情与待处理的审批" width="100%" />
@@ -69,26 +70,27 @@
 ## 工作原理
 
 ```mermaid
-flowchart LR
+flowchart TB
+  Phone["手机 / 浏览器（PWA）"]
+  TS(["tailscale serve · HTTPS"])
   subgraph Mac["你的 Mac"]
-    direction TB
-    subgraph Vendors["三家本机存储（只读）"]
-      C1["~/.claude/projects<br/>会话 jsonl"]
-      C2["~/.codex<br/>state sqlite + rollout"]
-      C3["Cursor state.vscdb<br/>+ ~/.cursor/chats"]
-    end
-    Scanner["Scanner<br/>扫描 · 判定空闲 · 增量进度"]
+    Gateway["Gateway<br/>REST + WebSocket + 静态 PWA · 仅 127.0.0.1"]
     Core["Core<br/>统一事件 · SQLite · 审批 · 互斥"]
-    Gateway["Gateway<br/>REST + WebSocket + 静态 PWA<br/>仅 127.0.0.1"]
-    Adapter["Adapter<br/>一轮一进程<br/>claude -p / codex app-server / agent -p"]
-    Vendors --> Scanner --> Core
-    Core <--> Gateway
+    Scanner["Scanner<br/>扫描 · 空闲判定 · 增量进度"]
+    Adapter["Adapter<br/>一轮一进程：claude -p / codex app-server / agent -p"]
+    subgraph Vendors["三家本机存储（只读）"]
+      direction LR
+      C1["~/.claude/projects"]
+      C2["~/.codex"]
+      C3["Cursor state.vscdb"]
+    end
+    Gateway <--> Core
     Core --> Adapter
-    Adapter -. 续聊写回厂商存储 .-> Vendors
+    Scanner --> Core
+    Vendors --> Scanner
+    Adapter -. 续聊由官方 CLI 写回 .-> Vendors
   end
-  TS(["tailscale serve<br/>HTTPS 终止"])
-  Phone["📱 手机 / 💻 浏览器<br/>PWA"]
-  Gateway <--> TS <--> Phone
+  Phone <--> TS <--> Gateway
 ```
 
 - **Scanner** 只读三家的本机存储，产出会话列表、状态和桌面端的进度，**永远不写**。
@@ -102,7 +104,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
   autonumber
-  participant P as 📱 PWA
+  participant P as 手机 PWA
   participant H as Agent Hub
   participant S as Scanner
   participant C as claude -p（子进程）
@@ -147,7 +149,7 @@ sequenceDiagram
 ### 1. 安装并启动
 
 ```bash
-git clone <this-repo> agent-hub && cd agent-hub
+git clone https://github.com/sexylowrie/agent-hub.git && cd agent-hub
 npm install && npm run web:install && npm run web:build
 
 cp hub.config.example.json hub.config.json   # 改 allowedCwds：允许在哪些目录新建会话
@@ -295,6 +297,8 @@ iOS 只允许「添加到主屏幕」后从图标打开的网页 App 订阅推�
 - [ ] 图片 / 附件消息
 - [ ] 更多厂商
 
-## 声明
+## 许可证与声明
+
+[MIT](LICENSE) © sunce
 
 本项目为个人开源项目，与 Anthropic、OpenAI、Anysphere（Cursor）均无关联。Claude、Codex、ChatGPT、Cursor 为各自公司的商标。
