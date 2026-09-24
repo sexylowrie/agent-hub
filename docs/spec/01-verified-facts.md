@@ -53,9 +53,9 @@
   - `thread/start {cwd, approvalPolicy:"on-request", sandbox:"read-only"|"workspace-write"}`
   - `turn/start {threadId, input:[{type:"text",text}]}`；通知流 `turn/started`、`item/started`、`item/agentMessage/delta`、`item/completed`、`turn/completed{turn.status}`
   - 审批：服务端发**带 id 的请求** `item/commandExecution/requestApproval {kind,threadId,turnId,itemId,reason,command,...}`，客户端回 `{id, result:{decision:"accept"|"decline"|"acceptForSession"}}`。样本见 `recordings/codex/app-server-approval.ndjson`
-- 协议 JSON Schema：`codex app-server generate-json-schema --out <dir>`；TS：`generate-ts`。已导出一份到 `docs/research/codex-app-server-schema/`。
+- 协议 JSON Schema：`codex app-server generate-json-schema --out <dir>`；TS：`generate-ts`。需要时本地导出（不入库，约 4MB）；Adapter 用的 TS 类型由 `npm run gen:codex` 生成到 `src/adapters/codex.types*`。
 - **模型**：`~/.codex/config.toml` 默认 `gpt-5.2`，ChatGPT 账号不支持，报 400；拉起时必须 `-c model="gpt-5.5"`（可用列表在 `~/.codex/models_cache.json`）。
-- `codex exec --json` 需 `</dev/null` 或 `--skip-git-repo-check`，否则等 stdin；事件类型见 `recordings/codex/exec-one-turn.ndjson`。
+- `codex exec --json` 需 `</dev/null` 或 `--skip-git-repo-check`，否则等 stdin；事件为 `thread.started` / `turn.started` / `item.*` / `turn.completed`（Adapter 走 app-server，不用 exec，样本未保留）。
 - `codex mcp-server` 已被官方移除，不要用。
 
 ### Codex · M1 实测补充（2026-09-24）

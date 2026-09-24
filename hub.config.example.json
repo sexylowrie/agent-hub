@@ -1,13 +1,31 @@
 {
-  "listen": { "host": "127.0.0.1", "port": 7788 },
+  "listen": {
+    "host": "127.0.0.1",
+    "port": 7788
+  },
   "dataDir": "~/Library/Application Support/agent-hub",
   "binaries": {
     "claude": "claude",
     "codex": "/Applications/ChatGPT.app/Contents/Resources/codex",
     "cursor": "agent"
   },
-  "codex": { "model": "gpt-5.5" },
-  "allowedCwds": ["~/AiProject", "~/IdeaProjects"],
-  "scanner": { "recentDays": 30, "reconcileSeconds": 60, "idleQuietMs": { "claude": 3000, "codex": 5000, "cursor": 0 } },
-  "approval": { "expireSeconds": 300 }
+  "codex": {
+    "model": "gpt-5.5"
+  },
+  "allowedCwds": [
+    "~/code",
+    "~/Projects"
+  ],
+  "scanner": {
+    "recentDays": 30,
+    "reconcileSeconds": 60,
+    "idleQuietMs": {
+      "claude": 3000,
+      "codex": 5000,
+      "cursor": 0
+    }
+  },
+  "approval": {
+    "expireSeconds": 300
+  }
 }
